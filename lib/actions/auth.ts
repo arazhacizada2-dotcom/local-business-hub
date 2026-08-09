@@ -121,7 +121,7 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
   // createAnonAuthClient() in lib/supabase/server.ts for the full
   // reasoning.
   async function attempt(): Promise<AuthResult> {
-    const supabase = createAnonAuthClient();
+    const supabase = createClient();
     // Goes through /auth/callback (which exchanges the recovery code for a
     // session and sets the auth cookies) and only then on to
     // /update-password — going straight to /update-password with
