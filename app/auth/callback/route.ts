@@ -1,19 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
-import { safeRedirectPath } from "@/lib/safe-redirect";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const url = new URL(request.url);
 
-  const code = searchParams.get("code");
+  const code = url.searchParams.get("code");
 
-  const next =
-    safeRedirectPath(searchParams.get("next")) ||
-    "/update-password";
+  console.log("AUTH CALLBACK URL:", url.toString());
+  console.log("CODE:", code);
 
   if (!code) {
     return NextResponse.redirect(
-      `${origin}/forgot-password?error=missing_code`
+      `${url.origin}/forgot-password?error=no_code`
     );
   }
 
@@ -23,12 +21,17 @@ export async function GET(request: Request) {
     await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
-    console.error(error);
+    console.error(
+      "EXCHANGE ERROR:",
+      error.message
+    );
 
     return NextResponse.redirect(
-      `${origin}/forgot-password?error=invalid_or_expired_link`
+      `${url.origin}/forgot-password?error=${encodeURIComponent(error.message)}`
     );
   }
 
-  return NextResponse.redirect(`${origin}${next}`);
+  return NextResponse.redirect(
+    `${url.origin}/update-password`
+  );
 }
