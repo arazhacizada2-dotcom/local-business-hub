@@ -112,7 +112,7 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
   if (!email) return { error: "Enter your email address." };
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-  const redirectTo = `${siteUrl}/auth/callback?next=/update-password`;
+  const redirectTo = `${siteUrl}/auth/callback`;
 
   // Uses createAnonAuthClient(), NOT the shared createClient() — this is
   // an anonymous-only operation, and isolating it means it can't be
