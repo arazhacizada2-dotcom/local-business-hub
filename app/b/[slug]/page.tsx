@@ -108,6 +108,7 @@ export default async function PublicBusinessPage({ params }: { params: { slug: s
             businessId={business.id}
             services={services ?? []}
             openingHours={business.opening_hours}
+            timeZone={business.timezone || "UTC"}
           />
         </div>
       </section>
