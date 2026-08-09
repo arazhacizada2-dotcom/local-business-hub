@@ -16,30 +16,8 @@ import {
 } from "@/lib/actions/appointments";
 import { generateAvailableSlots } from "@/lib/slots";
 
-function toDateInputValue(d: Date, timeZone: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
-}
-
-function formatTime(date: Date, timeZone: string) {
-  return new Intl.DateTimeFormat([], {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatDate(date: Date, timeZone: string) {
-  return new Intl.DateTimeFormat([], {
-    timeZone,
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  }).format(date);
+function toDateInputValue(d: Date) {
+  return d.toISOString().slice(0, 10);
 }
 
 export function BookingWidget({
@@ -57,11 +35,9 @@ export function BookingWidget({
   const [serviceId, setServiceId] = useState<string>(
     services[0]?.id ?? ""
   );
-
   const [dateISO, setDateISO] = useState<string>(
-    toDateInputValue(new Date(), timeZone)
+    toDateInputValue(new Date())
   );
-
   const [slots, setSlots] = useState<Date[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<Date | null>(null);
@@ -74,11 +50,9 @@ export function BookingWidget({
     [services, serviceId]
   );
 
-  const minDate = toDateInputValue(new Date(), timeZone);
-
+  const minDate = toDateInputValue(new Date());
   const maxDate = toDateInputValue(
-    new Date(Date.now() + 1000 * 60 * 60 * 24 * 60),
-    timeZone
+    new Date(Date.now() + 1000 * 60 * 60 * 24 * 60)
   );
 
   useEffect(() => {
@@ -256,7 +230,10 @@ export function BookingWidget({
                         : "border-line text-ink hover:border-ink/40")
                     }
                   >
-                    {formatTime(slot, timeZone)}
+                    {slot.toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </button>
                 ))}
               </div>
@@ -290,8 +267,6 @@ export function BookingWidget({
 
               fd.set("businessId", businessId);
               fd.set("serviceId", service.id);
-
-              // Store the actual UTC instant.
               fd.set(
                 "startsAt",
                 selectedSlot.toISOString()
@@ -315,8 +290,16 @@ export function BookingWidget({
             </p>
 
             <p>
-              {formatDate(selectedSlot, timeZone)} at{" "}
-              {formatTime(selectedSlot, timeZone)}
+              {selectedSlot.toLocaleDateString([], {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })}{" "}
+              at{" "}
+              {selectedSlot.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
             </p>
           </div>
 
@@ -371,6 +354,7 @@ export function BookingWidget({
             />
           </div>
 
+          {/* Honeypot — hidden from users, bots often fill it */}
           <input
             type="text"
             name="_hp_website"
