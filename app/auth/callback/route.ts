@@ -1,37 +1,55 @@
 import { createClient } from "@/lib/supabase/server";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
+  const { searchParams, origin } = new URL(request.url);
 
-  const code = url.searchParams.get("code");
+  const code = searchParams.get("code");
+  const token = searchParams.get("token");
+  const type = searchParams.get("type");
 
-  console.log("AUTH CALLBACK URL:", url.toString());
-  console.log("CODE:", code);
-
-  if (!code) {
-    return NextResponse.redirect(
-      `${url.origin}/forgot-password?error=no_code`
-    );
-  }
+  const next =
+    safeRedirectPath(searchParams.get("next")) ||
+    "/update-password";
 
   const supabase = createClient();
 
-  const { error } =
-    await supabase.auth.exchangeCodeForSession(code);
+  let error = null;
 
-  if (error) {
-    console.error(
-      "EXCHANGE ERROR:",
-      error.message
-    );
+  if (code) {
+    const result =
+      await supabase.auth.exchangeCodeForSession(code);
 
+    error = result.error;
+
+  } else if (token && type === "recovery") {
+
+    const result =
+      await supabase.auth.verifyOtp({
+        token_hash: token,
+        type: "recovery",
+      });
+
+    error = result.error;
+
+  } else {
     return NextResponse.redirect(
-      `${url.origin}/forgot-password?error=${encodeURIComponent(error.message)}`
+      `${origin}/forgot-password?error=missing_code`
     );
   }
 
+
+  if (error) {
+    console.error(error);
+
+    return NextResponse.redirect(
+      `${origin}/forgot-password?error=invalid_or_expired_link`
+    );
+  }
+
+
   return NextResponse.redirect(
-    `${url.origin}/update-password`
+    `${origin}${next}`
   );
 }
