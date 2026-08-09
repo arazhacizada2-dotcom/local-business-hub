@@ -20,6 +20,8 @@ function endOfDay(d: Date) {
 export default async function DashboardOverviewPage() {
   const supabase = createClient();
 
+  throw new Error("TEST: Dashboard error state");
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
