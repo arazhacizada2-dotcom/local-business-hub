@@ -37,7 +37,7 @@ const [todaysAppts, upcoming, todaysViews, newBookings, totalServices] =
       .eq("business_id", business.id),
   ]);
 
-// Error state/check BURADA
+// Error check BURADA, Promise.all DIŞINDA
 if (
   todaysAppts.error ||
   upcoming.error ||
