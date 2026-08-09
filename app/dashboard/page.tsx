@@ -1,56 +1,43 @@
-const [todaysAppts, upcoming, todaysViews, newBookings, totalServices] =
-  await Promise.all([
-    supabase
-      .from("appointments")
-      .select("id", { count: "exact", head: true })
-      .eq("business_id", business.id)
-      .neq("status", "cancelled")
-      .gte("starts_at", todayStart)
-      .lte("starts_at", todayEnd),
+export default async function DashboardOverviewPage() {
+  const supabase = createClient();
 
-    supabase
-      .from("appointments")
-      .select("id, customer_name, starts_at, status, services(name)")
-      .eq("business_id", business.id)
-      .neq("status", "cancelled")
-      .gte("starts_at", now.toISOString())
-      .order("starts_at", { ascending: true })
-      .limit(6),
+  // ...
 
-    supabase
-      .from("page_views")
-      .select("id", { count: "exact", head: true })
-      .eq("business_id", business.id)
-      .eq("event_type", "page_view")
-      .gte("created_at", todayStart)
-      .lte("created_at", todayEnd),
+  const now = new Date();
+  const todayStart = startOfDay(now).toISOString();
+  const todayEnd = endOfDay(now).toISOString();
 
-    supabase
-      .from("appointments")
-      .select("id", { count: "exact", head: true })
-      .eq("business_id", business.id)
-      .eq("status", "pending"),
+  // BURADA
+  const [todaysAppts, upcoming, todaysViews, newBookings, totalServices] =
+    await Promise.all([
+      // queries...
+    ]);
 
-    supabase
-      .from("services")
-      .select("id", { count: "exact", head: true })
-      .eq("business_id", business.id),
-  ]);
+  // BURADA
+  if (
+    todaysAppts.error ||
+    upcoming.error ||
+    todaysViews.error ||
+    newBookings.error ||
+    totalServices.error
+  ) {
+    throw new Error(
+      todaysAppts.error?.message ||
+        upcoming.error?.message ||
+        todaysViews.error?.message ||
+        newBookings.error?.message ||
+        totalServices.error?.message ||
+        "Failed to load dashboard data"
+    );
+  }
 
-// Error check BURADA, Promise.all DIŞINDA
-if (
-  todaysAppts.error ||
-  upcoming.error ||
-  todaysViews.error ||
-  newBookings.error ||
-  totalServices.error
-) {
-  throw new Error(
-    todaysAppts.error?.message ||
-      upcoming.error?.message ||
-      todaysViews.error?.message ||
-      newBookings.error?.message ||
-      totalServices.error?.message ||
-      "Failed to load dashboard data"
+  const hour = now.getHours();
+
+  // ...
+
+  return (
+    <div>
+      {/* dashboard */}
+    </div>
   );
 }
