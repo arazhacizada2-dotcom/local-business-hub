@@ -4,41 +4,26 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: Request) {
   const url = new URL(request.url);
 
-  const tokenHash = url.searchParams.get("token_hash");
-  const token = url.searchParams.get("token");
-  const type = url.searchParams.get("type");
+  const code = url.searchParams.get("code");
+
+  if (!code) {
+    return NextResponse.redirect(
+      `${url.origin}/forgot-password?error=missing_code`
+    );
+  }
 
   const supabase = createClient();
 
-  // Supabase recovery link
-  if (type === "recovery") {
-    const hash = tokenHash || token;
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-    if (!hash) {
-      return NextResponse.redirect(
-        `${url.origin}/forgot-password?error=missing_token`
-      );
-    }
-
-    const { error } = await supabase.auth.verifyOtp({
-      token_hash: hash,
-      type: "recovery",
-    });
-
-    if (error) {
-      console.log("VERIFY ERROR:", error);
-
-      return NextResponse.redirect(
-        `${url.origin}/forgot-password?error=invalid_or_expired_link`
-      );
-    }
-
+  if (error) {
+    console.log(error);
     return NextResponse.redirect(
-      `${url.origin}/update-password`
+      `${url.origin}/forgot-password?error=invalid_code`
     );
   }
 
   return NextResponse.redirect(
-    `${url.origin}/forgot-password?error=invalid_request`
+    `${url.origin}/update-password`
   );
 }
