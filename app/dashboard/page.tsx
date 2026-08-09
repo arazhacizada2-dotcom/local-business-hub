@@ -20,27 +20,33 @@ function endOfDay(d: Date) {
 export default async function DashboardOverviewPage() {
   const supabase = createClient();
 
-  throw new Error("TEST: Dashboard error state");
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  // Explicitly get the user ID so TypeScript knows it exists.
+  const userId = user?.id;
+
+  if (!userId) {
     redirect("/login");
   }
 
-  const { data: business } = await supabase
+  const { data: business, error: businessError } = await supabase
     .from("businesses")
     .select("id, name")
-    .eq("owner_id", user.id)
+    .eq("owner_id", userId)
     .maybeSingle();
+
+  if (businessError) {
+    throw new Error(businessError.message);
+  }
 
   if (!business) {
     redirect("/onboarding");
   }
 
   const now = new Date();
+
   const todayStart = startOfDay(now).toISOString();
   const todayEnd = endOfDay(now).toISOString();
 
@@ -88,7 +94,7 @@ export default async function DashboardOverviewPage() {
       .eq("business_id", business.id),
   ]);
 
-  // Error check
+  // Check all database requests for errors.
   if (
     todaysAppts.error ||
     upcoming.error ||
