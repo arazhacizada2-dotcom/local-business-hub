@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, createAnonAuthClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 export interface AuthResult {
