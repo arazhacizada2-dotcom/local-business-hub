@@ -16,8 +16,71 @@ import {
 } from "@/lib/actions/appointments";
 import { generateAvailableSlots } from "@/lib/slots";
 
-function toDateInputValue(d: Date) {
-  return d.toISOString().slice(0, 10);
+/**
+ * Returns today's calendar date in the BUSINESS timezone.
+ *
+ * This is important because the customer's computer may be in
+ * a completely different timezone from the business.
+ */
+function getTodayInTimeZone(timeZone: string): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  return formatter.format(new Date());
+}
+
+/**
+ * Adds calendar days to a YYYY-MM-DD date.
+ *
+ * We intentionally use UTC noon here because we're manipulating
+ * a calendar date, not an actual moment in time.
+ */
+function addCalendarDays(dateISO: string, days: number): string {
+  const [year, month, day] = dateISO.split("-").map(Number);
+
+  const date = new Date(
+    Date.UTC(year, month - 1, day, 12, 0, 0)
+  );
+
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Formats a real Date in the BUSINESS timezone.
+ *
+ * Never use plain toLocaleTimeString() here because that would
+ * use the customer's/browser timezone.
+ */
+function formatBusinessTime(
+  date: Date,
+  timeZone: string
+): string {
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+/**
+ * Formats a real Date in the BUSINESS timezone.
+ */
+function formatBusinessDate(
+  date: Date,
+  timeZone: string
+): string {
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone,
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }).format(date);
 }
 
 export function BookingWidget({
@@ -32,12 +95,20 @@ export function BookingWidget({
   timeZone: string;
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
+
   const [serviceId, setServiceId] = useState<string>(
     services[0]?.id ?? ""
   );
-  const [dateISO, setDateISO] = useState<string>(
-    toDateInputValue(new Date())
+
+  /**
+   * IMPORTANT:
+   * The selected date is based on the BUSINESS timezone,
+   * not the customer's computer timezone.
+   */
+  const [dateISO, setDateISO] = useState<string>(() =>
+    getTodayInTimeZone(timeZone)
   );
+
   const [slots, setSlots] = useState<Date[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<Date | null>(null);
@@ -50,11 +121,26 @@ export function BookingWidget({
     [services, serviceId]
   );
 
-  const minDate = toDateInputValue(new Date());
-  const maxDate = toDateInputValue(
-    new Date(Date.now() + 1000 * 60 * 60 * 24 * 60)
+  /**
+   * Date picker boundaries are also based on the BUSINESS timezone.
+   */
+  const minDate = useMemo(
+    () => getTodayInTimeZone(timeZone),
+    [timeZone]
   );
 
+  const maxDate = useMemo(
+    () => addCalendarDays(minDate, 60),
+    [minDate]
+  );
+
+  /**
+   * Load available appointment slots whenever:
+   * - business changes
+   * - date changes
+   * - service changes
+   * - business timezone changes
+   */
   useEffect(() => {
     if (!service) return;
 
@@ -62,20 +148,20 @@ export function BookingWidget({
 
     setLoadingSlots(true);
     setSelectedSlot(null);
+    setError(null);
 
     getBookedRanges(businessId, dateISO).then((ranges) => {
       if (cancelled) return;
 
-      setSlots(
-        generateAvailableSlots(
-          dateISO,
-          openingHours,
-          service.duration_minutes,
-          ranges,
-          timeZone
-        )
+      const availableSlots = generateAvailableSlots(
+        dateISO,
+        openingHours,
+        service.duration_minutes,
+        ranges,
+        timeZone
       );
 
+      setSlots(availableSlots);
       setLoadingSlots(false);
     });
 
@@ -208,16 +294,20 @@ export function BookingWidget({
               Available times
             </Label>
 
+            <p className="mt-1 text-xs text-ink2">
+              Times shown in the business timezone: {timeZone}
+            </p>
+
             {loadingSlots ? (
-              <p className="text-sm text-ink2">
+              <p className="mt-3 text-sm text-ink2">
                 Loading available times…
               </p>
             ) : slots.length === 0 ? (
-              <p className="text-sm text-ink2">
+              <p className="mt-3 text-sm text-ink2">
                 No times available this day. Try another date.
               </p>
             ) : (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
                 {slots.map((slot) => (
                   <button
                     key={slot.toISOString()}
@@ -230,10 +320,7 @@ export function BookingWidget({
                         : "border-line text-ink hover:border-ink/40")
                     }
                   >
-                    {slot.toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {formatBusinessTime(slot, timeZone)}
                   </button>
                 ))}
               </div>
@@ -267,6 +354,13 @@ export function BookingWidget({
 
               fd.set("businessId", businessId);
               fd.set("serviceId", service.id);
+
+              /**
+               * Keep the actual instant as ISO/UTC.
+               *
+               * The server/database should store the real moment in time.
+               * Only the DISPLAY is converted to the business timezone.
+               */
               fd.set(
                 "startsAt",
                 selectedSlot.toISOString()
@@ -290,16 +384,13 @@ export function BookingWidget({
             </p>
 
             <p>
-              {selectedSlot.toLocaleDateString([], {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-              })}{" "}
+              {formatBusinessDate(selectedSlot, timeZone)}{" "}
               at{" "}
-              {selectedSlot.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
+              {formatBusinessTime(selectedSlot, timeZone)}
+            </p>
+
+            <p className="mt-1 text-xs text-ink2">
+              Business timezone: {timeZone}
             </p>
           </div>
 
