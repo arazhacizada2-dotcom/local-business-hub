@@ -15,9 +15,9 @@ export async function GET(request: Request) {
 
   // Signup confirmation should go to onboarding.
   // Password recovery should go to update-password.
-  const next =
-    safeRedirectPath(requestedNext) ||
-    (typeParam === "recovery" ? "/update-password" : "/onboarding");
+  const defaultNext =
+    typeParam === "recovery" ? "/update-password" : "/onboarding";
+  const next = safeRedirectPath(requestedNext, defaultNext);
 
   // Supabase may redirect authentication errors back to the
   // requested redirect URL. Handle those before looking for code/token.
