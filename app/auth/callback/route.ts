@@ -1,29 +1,55 @@
-import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { safeRedirectPath } from "@/lib/safe-redirect";
+import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
+  const { searchParams, origin } = new URL(request.url);
 
-  const code = url.searchParams.get("code");
+  const code = searchParams.get("code");
+  const tokenHash = searchParams.get("token_hash");
+  const type = searchParams.get("type");
 
-  if (!code) {
-    return NextResponse.redirect(
-      `${url.origin}/forgot-password?error=missing_code`
-    );
-  }
+  const next =
+    safeRedirectPath(searchParams.get("next")) || "/update-password";
 
   const supabase = createClient();
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  let error: any = null;
 
-  if (error) {
-    console.log(error);
+  // Modern PKCE flow
+  if (code) {
+    const { error: codeError } =
+      await supabase.auth.exchangeCodeForSession(code);
+
+    error = codeError;
+  }
+
+  // Token-hash flow
+  else if (tokenHash && type) {
+    const { error: otpError } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: type as any,
+    });
+
+    error = otpError;
+  }
+
+  else {
     return NextResponse.redirect(
-      `${url.origin}/forgot-password?error=invalid_code`
+      `${origin}/forgot-password?error=missing_code`
     );
   }
 
-  return NextResponse.redirect(
-    `${url.origin}/update-password`
-  );
+  if (error) {
+    console.error("[auth:callback]", {
+      message: error.message,
+      name: error.name,
+    });
+
+    return NextResponse.redirect(
+      `${origin}/forgot-password?error=invalid_or_expired_link`
+    );
+  }
+
+  return NextResponse.redirect(`${origin}${next}`);
 }
