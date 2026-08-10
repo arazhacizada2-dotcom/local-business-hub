@@ -3,12 +3,12 @@
 import { useState, useTransition } from "react";
 import { Label, Input } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
-import type { ActionResult } from "@/lib/actions/business";
+import type { AuthResult } from "@/lib/actions/auth";
 
 export function LoginForm({
   action,
 }: {
-  action: (fd: FormData) => Promise<ActionResult>;
+  action: (fd: FormData) => Promise<AuthResult>;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -19,10 +19,14 @@ export function LoginForm({
         startTransition(async () => {
           setError(null);
 
-          const res = await action(fd);
+          try {
+            const res = await action(fd);
 
-          if (res?.error) {
-            setError(res.error);
+            if (res?.error) {
+              setError(res.error);
+            }
+          } catch {
+            setError("Something went wrong. Please try again.");
           }
         })
       }
@@ -57,7 +61,11 @@ export function LoginForm({
         </p>
       )}
 
-      <Button type="submit" className="w-full" disabled={pending}>
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={pending}
+      >
         {pending ? "Signing in…" : "Log in"}
       </Button>
     </form>
@@ -67,20 +75,11 @@ export function LoginForm({
 export function SignupForm({
   action,
 }: {
-  action: (fd: FormData) => Promise<ActionResult>;
+  action: (fd: FormData) => Promise<AuthResult>;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-
-  if (success) {
-    return (
-      <div className="rounded-md bg-ledger/10 px-4 py-4 text-sm text-ledgerDark">
-        <p className="font-medium">Account created successfully.</p>
-        <p className="mt-1">{success}</p>
-      </div>
-    );
-  }
 
   return (
     <form
@@ -89,18 +88,23 @@ export function SignupForm({
           setError(null);
           setSuccess(null);
 
-          const res = await action(fd);
+          try {
+            const res = await action(fd);
 
-          if (res?.error) {
-            setError(res.error);
-            return;
-          }
+            if (res?.error) {
+              setError(res.error);
+              return;
+            }
 
-          if (res?.requiresConfirmation) {
-            setSuccess(
-              res.message ||
-                "Please check your email to confirm your account."
-            );
+            if (res?.requiresConfirmation) {
+              setSuccess(
+                res.message ||
+                  "Please check your email to confirm your account."
+              );
+              return;
+            }
+          } catch {
+            setError("Something went wrong. Please try again.");
           }
         })
       }
@@ -150,7 +154,20 @@ export function SignupForm({
         </p>
       )}
 
-      <Button type="submit" className="w-full" disabled={pending}>
+      {success && (
+        <p
+          role="status"
+          className="rounded-md bg-ledger/10 px-4 py-3 text-sm text-ledgerDark"
+        >
+          {success}
+        </p>
+      )}
+
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={pending}
+      >
         {pending ? "Creating account…" : "Create account"}
       </Button>
     </form>
@@ -160,7 +177,7 @@ export function SignupForm({
 export function ForgotPasswordForm({
   action,
 }: {
-  action: (fd: FormData) => Promise<ActionResult>;
+  action: (fd: FormData) => Promise<AuthResult>;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -180,12 +197,16 @@ export function ForgotPasswordForm({
         startTransition(async () => {
           setError(null);
 
-          const res = await action(fd);
+          try {
+            const res = await action(fd);
 
-          if (res?.error) {
-            setError(res.error);
-          } else {
-            setSent(true);
+            if (res?.error) {
+              setError(res.error);
+            } else {
+              setSent(true);
+            }
+          } catch {
+            setError("Something went wrong. Please try again.");
           }
         })
       }
@@ -209,7 +230,11 @@ export function ForgotPasswordForm({
         </p>
       )}
 
-      <Button type="submit" className="w-full" disabled={pending}>
+      <Button
+        type="submit"
+        className="w-full"
+        disabled={pending}
+      >
         {pending ? "Sending…" : "Send reset link"}
       </Button>
     </form>
