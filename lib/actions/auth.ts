@@ -1,10 +1,12 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAnonAuthClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 export interface AuthResult {
   error?: string;
+  requiresConfirmation?: boolean;
+  message?: string;
 }
 
 /** Turns any thrown/returned error into a safe, user-facing message while
@@ -71,12 +73,30 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
 
   try {
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: fullName } },
-    });
-    if (error) return { error: error.message };
+    const { data, error } = await supabase.auth.signUp({
+  email,
+  password,
+  options: {
+    data: { full_name: fullName },
+    emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?next=/onboarding`,
+  },
+});
+      
+
+    if (error) {
+      if (error.message === 'email rate limit exceeded') {
+        return { error: 'Too many signup attempts. Please wait a few minutes before trying again.' };
+      }
+      return { error: error.message };
+    }
+
+    // If no session is returned, email confirmation is required
+    if (!data.session && data.user) {
+      return {
+        requiresConfirmation: true,
+        message: "Please check your email to confirm your account.",
+      };
+    }
   } catch (err) {
     return { error: logAndDescribe("signUp", err) };
   }
@@ -121,7 +141,7 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
   // createAnonAuthClient() in lib/supabase/server.ts for the full
   // reasoning.
   async function attempt(): Promise<AuthResult> {
-    const supabase = createClient();
+    const supabase = createAnonAuthClient();
     // Goes through /auth/callback (which exchanges the recovery code for a
     // session and sets the auth cookies) and only then on to
     // /update-password — going straight to /update-password with
