@@ -1,6 +1,8 @@
 "use server";
 
 import { createClient, createAnonAuthClient } from "@/lib/supabase/server";
+import { safeRedirectPath } from "@/lib/safe-redirect";
+import { EmailOtpType } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 
 export interface AuthResult {
@@ -63,6 +65,65 @@ function isRawNetworkFailure(err: unknown): boolean {
   return err instanceof Error && err.message === "fetch failed";
 }
 
+const ALLOWED_EMAIL_OTP_TYPES: EmailOtpType[] = [
+  "email",
+  "recovery",
+  "invite",
+  "email_change",
+];
+
+/**
+ * Exchange a token_hash from an email link for a session.
+ * Must only be called from an explicit user action (form POST), never from
+ * a bare GET — automated email scanners would otherwise consume the
+ * single-use token before the real user confirms.
+ */
+export async function confirmEmailOtp(formData: FormData): Promise<void> {
+  const tokenHash = String(formData.get("token_hash") || "").trim();
+  const typeParam = String(formData.get("type") || "").trim();
+  const requestedNext = String(formData.get("next") || "").trim() || null;
+
+  const defaultNext =
+    typeParam === "recovery" ? "/update-password" : "/onboarding";
+  const next = safeRedirectPath(requestedNext, defaultNext);
+
+  const errorPage =
+    typeParam === "recovery" ? "/forgot-password" : "/signup";
+
+  if (!tokenHash || !typeParam) {
+    redirect(`${errorPage}?error=missing_code`);
+  }
+
+  if (!ALLOWED_EMAIL_OTP_TYPES.includes(typeParam as EmailOtpType)) {
+    console.error("[auth:confirmEmailOtp] Invalid auth type", {
+      type: typeParam,
+    });
+    redirect(`/signup?error=invalid_auth_type`);
+  }
+
+  try {
+    const supabase = createClient();
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: typeParam as EmailOtpType,
+    });
+
+    if (error) {
+      console.error("[auth:confirmEmailOtp]", {
+        message: error.message,
+        name: error.name,
+        type: typeParam,
+      });
+      redirect(`${errorPage}?error=invalid_or_expired_link`);
+    }
+  } catch (err) {
+    console.error("[auth:confirmEmailOtp:unexpected]", err);
+    redirect(`${errorPage}?error=authentication_failed`);
+  }
+
+  redirect(next);
+}
+
 export async function signUp(formData: FormData): Promise<AuthResult> {
   const email = String(formData.get("email") || "").trim();
   const password = String(formData.get("password") || "");
@@ -74,18 +135,22 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
   try {
     const supabase = createClient();
     const { data, error } = await supabase.auth.signUp({
-  email,
-  password,
-  options: {
-    data: { full_name: fullName },
-    emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?next=/onboarding`,
-  },
-});
-      
+      email,
+      password,
+      options: {
+        data: { full_name: fullName },
+        // PKCE / ConfirmationURL redirects still land on the callback.
+        // Token-hash signup emails should point at /auth/confirm (see template).
+        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?next=/onboarding`,
+      },
+    });
 
     if (error) {
-      if (error.message === 'email rate limit exceeded') {
-        return { error: 'Too many signup attempts. Please wait a few minutes before trying again.' };
+      if (error.message === "email rate limit exceeded") {
+        return {
+          error:
+            "Too many signup attempts. Please wait a few minutes before trying again.",
+        };
       }
       return { error: error.message };
     }

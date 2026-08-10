@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
 import { safeRedirectPath } from "@/lib/safe-redirect";
-import { EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
@@ -45,9 +44,20 @@ export async function GET(request: Request) {
     return NextResponse.redirect(errorUrl);
   }
 
-  if (!code && !(tokenHash && typeParam)) {
-    console.error("[auth:callback] Missing authentication code/token", {
-      hasCode: Boolean(code),
+  // Token-hash links must not verify on GET — email scanners can consume
+  // the single-use token before the user clicks. Send them to the explicit
+  // confirm page instead (no auth side effect).
+  if (tokenHash && typeParam) {
+    const confirmUrl = new URL("/auth/confirm", origin);
+    confirmUrl.searchParams.set("token_hash", tokenHash);
+    confirmUrl.searchParams.set("type", typeParam);
+    confirmUrl.searchParams.set("next", next);
+    return NextResponse.redirect(confirmUrl);
+  }
+
+  if (!code) {
+    console.error("[auth:callback] Missing authentication code", {
+      hasCode: false,
       hasTokenHash: Boolean(tokenHash),
       type: typeParam,
     });
@@ -64,94 +74,33 @@ export async function GET(request: Request) {
   const supabase = createClient();
 
   try {
-    // PKCE flow
-    if (code) {
-      const { error } =
-        await supabase.auth.exchangeCodeForSession(code);
+    // PKCE flow (password recovery and any ConfirmationURL redirects)
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-      if (error) {
-        console.error("[auth:callback:pkce]", {
-          message: error.message,
-          name: error.name,
-        });
-
-        const errorPage =
-          typeParam === "recovery"
-            ? "/forgot-password"
-            : "/signup";
-
-        const errorUrl = new URL(errorPage, origin);
-        errorUrl.searchParams.set(
-          "error",
-          "invalid_or_expired_link"
-        );
-
-        return NextResponse.redirect(errorUrl);
-      }
-    }
-
-    // Token-hash flow
-    else if (tokenHash && typeParam) {
-      const allowedTypes: EmailOtpType[] = [
-        "email",
-        "recovery",
-        "invite",
-        "email_change",
-      ];
-
-      if (!allowedTypes.includes(typeParam as EmailOtpType)) {
-        console.error("[auth:callback] Invalid auth type", {
-          type: typeParam,
-        });
-
-        const errorUrl = new URL("/signup", origin);
-        errorUrl.searchParams.set("error", "invalid_auth_type");
-
-        return NextResponse.redirect(errorUrl);
-      }
-
-      const { error } = await supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: typeParam as EmailOtpType,
+    if (error) {
+      console.error("[auth:callback:pkce]", {
+        message: error.message,
+        name: error.name,
       });
 
-      if (error) {
-        console.error("[auth:callback:token]", {
-          message: error.message,
-          name: error.name,
-          type: typeParam,
-        });
+      const errorPage =
+        typeParam === "recovery" ? "/forgot-password" : "/signup";
 
-        const errorPage =
-          typeParam === "recovery"
-            ? "/forgot-password"
-            : "/signup";
+      const errorUrl = new URL(errorPage, origin);
+      errorUrl.searchParams.set("error", "invalid_or_expired_link");
 
-        const errorUrl = new URL(errorPage, origin);
-        errorUrl.searchParams.set(
-          "error",
-          "invalid_or_expired_link"
-        );
-
-        return NextResponse.redirect(errorUrl);
-      }
+      return NextResponse.redirect(errorUrl);
     }
 
-    // Authentication succeeded.
     return NextResponse.redirect(new URL(next, origin));
   } catch (error) {
     console.error("[auth:callback:unexpected]", error);
 
     const errorPage =
-      typeParam === "recovery"
-        ? "/forgot-password"
-        : "/signup";
+      typeParam === "recovery" ? "/forgot-password" : "/signup";
 
     const errorUrl = new URL(errorPage, origin);
-    errorUrl.searchParams.set(
-      "error",
-      "authentication_failed"
-    );
+    errorUrl.searchParams.set("error", "authentication_failed");
 
     return NextResponse.redirect(errorUrl);
   }
