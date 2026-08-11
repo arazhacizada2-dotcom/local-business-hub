@@ -232,12 +232,27 @@ create policy "businesses_update_own" on public.businesses
 create policy "businesses_delete_own" on public.businesses
   for delete using (auth.uid() = owner_id);
 
--- businesses: anyone (including anonymous visitors) can read the public
--- fields of a business via the public page. We allow full-row select
--- here for simplicity and only ever query the public columns from the
--- client; a stricter setup could use a view instead.
-create policy "businesses_select_public" on public.businesses
-  for select using (true);
+-- Public booking profile: limited columns only (no owner_id, plan,
+-- onboarding_complete). security_invoker=false so the view can read the
+-- base table without the removed businesses_select_public policy.
+create or replace view public.businesses_public
+with (security_invoker = false)
+as
+select
+  id,
+  slug,
+  name,
+  business_type,
+  description,
+  address,
+  phone,
+  email,
+  logo_url,
+  opening_hours
+from public.businesses;
+
+revoke all on public.businesses_public from public;
+grant select on public.businesses_public to anon, authenticated;
 
 -- services: owners manage their own; anyone can view active services
 -- of any business (needed for the public booking page)
