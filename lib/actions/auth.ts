@@ -116,6 +116,8 @@ export async function confirmEmailOtp(formData: FormData): Promise<void> {
     redirect(`/signup?error=invalid_auth_type`);
   }
 
+  let verificationError: { message: string; name?: string } | null = null;
+
   try {
     const supabase = createClient();
     const { error } = await supabase.auth.verifyOtp({
@@ -124,18 +126,30 @@ export async function confirmEmailOtp(formData: FormData): Promise<void> {
     });
 
     if (error) {
-      console.error("[auth:confirmEmailOtp]", {
+      verificationError = {
         message: error.message,
         name: error.name,
-        type: typeParam,
-      });
-      redirect(`${errorPage}?error=invalid_or_expired_link`);
+      };
     }
   } catch (err) {
+    // Next.js implements redirect() as a control-flow exception. Keep all
+    // redirects outside this try/catch so a successful verification cannot
+    // be converted into the generic authentication_failed path.
     console.error("[auth:confirmEmailOtp:unexpected]", err);
     redirect(`${errorPage}?error=authentication_failed`);
   }
 
+  if (verificationError) {
+    console.error("[auth:confirmEmailOtp]", {
+      message: verificationError.message,
+      name: verificationError.name,
+      type: typeParam,
+    });
+    redirect(`${errorPage}?error=invalid_or_expired_link`);
+  }
+
+  // verifyOtp() has established the Supabase recovery session and updated
+  // the server-side auth cookies. Redirect only after it has fully returned.
   redirect(next);
 }
 
