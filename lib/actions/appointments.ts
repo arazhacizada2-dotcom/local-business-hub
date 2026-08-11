@@ -88,23 +88,20 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
 
   const { data: service, error: serviceError } = await supabase
     .from("services")
-    .select("id, business_id, name, duration_minutes, is_active, businesses (email)")
+    .select("id, business_id, name, duration_minutes, is_active")
     .eq("id", serviceId)
     .eq("business_id", businessId)
     .eq("is_active", true)
     .maybeSingle();
 
-  // Helper type to help TS understand the nested structure
-  const serviceData = service as {
-    id: string;
-    business_id: string;
-    name: string;
-    duration_minutes: number;
-    is_active: boolean;
-    businesses: { email: string | null } | null;
-  } | null;
+  // Public contact email only — not owner_id / plan (businesses_public view).
+  const { data: publicBusiness } = await supabase
+    .from("businesses_public")
+    .select("email")
+    .eq("id", businessId)
+    .maybeSingle();
 
-  if (serviceError || !serviceData || !serviceData.businesses || !serviceData.businesses.email) {
+  if (serviceError || !service || !publicBusiness?.email) {
     return { error: "That service is no longer available. Please refresh and try again." };
   }
 
@@ -115,7 +112,7 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
     return { error: "Please choose a valid, upcoming time." };
   }
 
-  const durationMinutes = serviceData.duration_minutes;
+  const durationMinutes = service.duration_minutes as number;
   const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
 
   const { error } = await supabase.from("appointments").insert({
@@ -144,11 +141,11 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
 
   // Send email notification - fire and forget, don't block return
   sendBookingNotification({
-    ownerEmail: serviceData.businesses.email,
+    ownerEmail: publicBusiness.email,
     customerName,
     customerEmail,
     customerPhone,
-    serviceName: serviceData.name,
+    serviceName: service.name as string,
     startsAt: startsAtISO,
     notes,
   }).catch((err) => console.error("Error in booking email flow:", err));

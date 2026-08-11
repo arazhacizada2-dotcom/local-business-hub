@@ -5,12 +5,17 @@ import {
   formatDuration,
   DAY_LABELS,
   DAY_ORDER,
+  type OpeningHours,
 } from "@/types/database";
 import { BookingWidget } from "@/components/booking/BookingWidget";
 import { trackPageView } from "@/lib/actions/appointments";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
+
+/** Columns exposed by public.businesses_public (no owner_id / plan / etc.). */
+const PUBLIC_BUSINESS_COLUMNS =
+  "id, slug, name, business_type, description, address, phone, email, logo_url, opening_hours" as const;
 
 function getTodayForTimezone(timeZone: string) {
   const weekday = new Intl.DateTimeFormat("en-US", {
@@ -39,16 +44,18 @@ export default async function PublicBusinessPage({
   const supabase = createClient();
 
   const { data: business } = await supabase
-    .from("businesses")
-    .select("*")
+    .from("businesses_public")
+    .select(PUBLIC_BUSINESS_COLUMNS)
     .eq("slug", params.slug)
     .maybeSingle();
 
   if (!business) notFound();
 
+  const openingHours = business.opening_hours as OpeningHours;
+
   const { data: services } = await supabase
     .from("services")
-    .select("*")
+    .select("id, business_id, name, description, price_cents, duration_minutes, is_active, sort_order")
     .eq("business_id", business.id)
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
@@ -56,8 +63,8 @@ export default async function PublicBusinessPage({
   // Track page view reliably before the serverless response finishes.
   await trackPageView(business.id);
 
-  // Use the BUSINESS timezone, not the server/Vercel timezone.
-  const businessTimeZone = business.timezone || "UTC";
+  // Schema has no timezone column yet; default to UTC for slot math.
+  const businessTimeZone = "UTC";
   const today = getTodayForTimezone(businessTimeZone);
 
   return (
@@ -159,7 +166,7 @@ export default async function PublicBusinessPage({
 
           <div className="mt-6 max-w-xs divide-y divide-line border-t border-line font-mono text-sm">
             {DAY_ORDER.map((day) => {
-              const hours = business.opening_hours[day];
+              const hours = openingHours[day];
 
               return (
                 <div
@@ -195,7 +202,7 @@ export default async function PublicBusinessPage({
           <BookingWidget
             businessId={business.id}
             services={services ?? []}
-            openingHours={business.opening_hours}
+            openingHours={openingHours}
             timeZone={businessTimeZone}
           />
         </div>
