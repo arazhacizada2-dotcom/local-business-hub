@@ -90,19 +90,36 @@ export async function deleteUserAccount(formData: FormData): Promise<ProfileActi
     .maybeSingle();
   if (profileError) return { error: "Could not verify your profile. Please try again." };
 
-  // Avatar objects are not relational rows, so remove the private object before
-  // deleting auth.users. The database cascades auth.users -> profiles -> business data.
-  if (profile?.avatar_path) {
-    const { error: avatarError } = await supabase.storage.from("avatars").remove([profile.avatar_path]);
-    if (avatarError) return { error: "Could not remove your avatar. Account deletion was not completed." };
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    // The service-role key must exist only in the server deployment environment.
+    return {
+      error:
+        "Account deletion is temporarily unavailable because the server is missing its Supabase admin configuration.",
+    };
   }
 
-  try {
-    const admin = createAdminClient();
-    const { error } = await admin.auth.admin.deleteUser(user.id);
-    if (error) return { error: "Could not delete your account. Please try again." };
-  } catch {
-    return { error: "Account deletion is not configured on the server." };
+  // Avatar objects are outside PostgreSQL transactions. Remove the private
+  // object before deleting auth.users, and do not delete the account if cleanup fails.
+  // The admin client is server-only and avoids relying on client Storage RLS for
+  // this destructive operation.
+  if (profile?.avatar_path) {
+    const { error: avatarError } = await admin.storage.from("avatars").remove([profile.avatar_path]);
+    if (avatarError) {
+      return {
+        error: "Could not remove your avatar. Account deletion was not completed. Please try again.",
+      };
+    }
+  }
+
+  // Deleting auth.users is the authoritative account deletion. The existing
+  // foreign-key cascades remove the user's profile, business, services,
+  // appointments, and page views according to the database schema.
+  const { error: deleteError } = await admin.auth.admin.deleteUser(user.id);
+  if (deleteError) {
+    return { error: "Could not delete your account. No account data was deleted. Please try again." };
   }
 
   await supabase.auth.signOut({ scope: "local" });
