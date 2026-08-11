@@ -328,9 +328,17 @@ export async function updatePassword(formData: FormData): Promise<AuthResult> {
 
     const { error } = await supabase.auth.updateUser({ password });
     if (error) return { error: logAndDescribe("updatePassword", error) };
+
+    // Updating a recovery password establishes/retains an authenticated
+    // session. End only this local recovery session so the user must
+    // explicitly sign in with the new password before reaching the dashboard.
+    const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
+    if (signOutError) {
+      return { error: logAndDescribe("updatePassword:signOut", signOutError) };
+    }
   } catch (err) {
     return { error: logAndDescribe("updatePassword", err) };
   }
 
-  redirect("/dashboard");
+  redirect("/login?password_updated=1");
 }
