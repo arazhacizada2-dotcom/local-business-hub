@@ -35,20 +35,14 @@ export async function updateUserProfile(formData: FormData): Promise<ProfileActi
   return { success: true };
 }
 
-const allowedAvatarTypes = new Map([
-  ["image/jpeg", "jpg"],
-  ["image/png", "png"],
-  ["image/webp", "webp"],
-]);
+const allowedAvatarTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 
 export async function uploadAvatar(formData: FormData): Promise<ProfileActionResult> {
   const file = formData.get("avatar");
   if (!(file instanceof File) || file.size === 0) return { error: "Choose an image to upload." };
   if (file.size > MAX_AVATAR_BYTES) return { error: "Avatar must be 2 MB or smaller." };
-
-  const extension = allowedAvatarTypes.get(file.type);
-  if (!extension) return { error: "Avatar must be a JPG, PNG, or WebP image." };
+  if (!allowedAvatarTypes.has(file.type)) return { error: "Avatar must be a JPG, PNG, or WebP image." };
 
   const supabase = createClient();
   const {
