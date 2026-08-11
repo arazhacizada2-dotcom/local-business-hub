@@ -97,6 +97,63 @@ alter table public.appointments
   )
   where (status <> 'cancelled');
 
+-- Force ends_at from the service duration so clients (including direct anon
+-- API inserts) cannot supply an arbitrary window.
+create or replace function public.enforce_appointment_duration()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  dur integer;
+begin
+  if new.service_id is null then
+    if tg_op = 'INSERT' then
+      raise exception 'service_id is required to determine appointment duration';
+    end if;
+
+    if new.starts_at is distinct from old.starts_at
+       or new.ends_at is distinct from old.ends_at then
+      raise exception 'Cannot change appointment times without a service_id';
+    end if;
+
+    return new;
+  end if;
+
+  select s.duration_minutes into dur
+  from public.services s
+  where s.id = new.service_id
+    and s.business_id = new.business_id
+    and s.is_active = true;
+
+  if dur is null then
+    select s.duration_minutes into dur
+    from public.services s
+    where s.id = new.service_id
+      and s.business_id = new.business_id;
+  end if;
+
+  if dur is null then
+    raise exception 'Invalid service for appointment';
+  end if;
+
+  if dur <= 0 then
+    raise exception 'Service duration must be positive';
+  end if;
+
+  new.ends_at := new.starts_at + make_interval(mins => dur);
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_appointment_duration_trg on public.appointments;
+
+create trigger enforce_appointment_duration_trg
+  before insert or update on public.appointments
+  for each row
+  execute procedure public.enforce_appointment_duration();
+
 -- ------------------------------------------------------------
 -- page_views: lightweight analytics
 -- ------------------------------------------------------------
@@ -207,6 +264,8 @@ create policy "appointments_owner_all" on public.appointments
 -- appointments: anonymous customers may INSERT a pending booking only when
 -- the service belongs to the business and is active. PII is never readable
 -- by anonymous users — slot availability is exposed via get_booked_ranges().
+-- ends_at is always rewritten by enforce_appointment_duration from the
+-- service duration before RLS WITH CHECK runs.
 create policy "appointments_insert_public" on public.appointments
   for insert with check (
     status = 'pending'
