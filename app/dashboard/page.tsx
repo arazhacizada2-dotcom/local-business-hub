@@ -69,7 +69,7 @@ export default async function DashboardOverviewPage() {
       .from("appointments")
       .select("id, customer_name, starts_at, status, services(name)")
       .eq("business_id", business.id)
-      .neq("status", "cancelled")
+      .in("status", ["pending", "confirmed"])
       .gte("starts_at", now.toISOString())
       .order("starts_at", { ascending: true })
       .limit(6),
