@@ -23,7 +23,6 @@ export function UserProfileForm({
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
   const [avatarPending, startAvatarTransition] = useTransition();
-  const [currentAvatarUrl, setCurrentAvatarUrl] = useState(avatarUrl);
 
   function submitProfile(formData: FormData) {
     startTransition(async () => {
@@ -43,7 +42,6 @@ export function UserProfileForm({
         setError(result.error);
         return;
       }
-      // Force the browser to fetch a fresh signed URL after an overwrite.
       window.location.reload();
     });
   }
@@ -72,9 +70,9 @@ export function UserProfileForm({
         <p className="mt-1 text-sm text-ink2">JPG, PNG, or WebP, up to 2 MB.</p>
         <div className="mt-4 flex items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-line bg-ink/5 text-sm text-ink2">
-            {currentAvatarUrl ? (
+            {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={currentAvatarUrl} alt="Your avatar" className="h-full w-full object-cover" />
+              <img src={avatarUrl} alt="Your avatar" className="h-full w-full object-cover" />
             ) : (
               "No photo"
             )}
