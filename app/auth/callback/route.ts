@@ -14,12 +14,15 @@ export async function GET(request: Request) {
 
   // Signup confirmation should go to onboarding.
   // Password recovery should go to update-password.
-  const defaultNext =
-    typeParam === "recovery" ? "/update-password" : "/onboarding";
+  // Supabase may omit `type=recovery` on an error redirect, so the
+  // recovery destination must also be inferred from `next`.
+  const isRecovery =
+    typeParam === "recovery" || requestedNext === "/update-password";
+  const defaultNext = isRecovery ? "/update-password" : "/onboarding";
   const next = safeRedirectPath(requestedNext, defaultNext);
 
-  // Supabase may redirect authentication errors back to the
-  // requested redirect URL. Handle those before looking for code/token.
+  // Supabase may redirect authentication errors back to the requested
+  // redirect URL. Handle those before looking for code/token.
   const authError = searchParams.get("error");
   const authErrorCode = searchParams.get("error_code");
   const authErrorDescription = searchParams.get("error_description");
@@ -30,10 +33,10 @@ export async function GET(request: Request) {
       errorCode: authErrorCode,
       description: authErrorDescription,
       type: typeParam,
+      next,
     });
 
-    const errorPage =
-      typeParam === "recovery" ? "/forgot-password" : "/signup";
+    const errorPage = isRecovery ? "/forgot-password" : "/signup";
 
     const errorUrl = new URL(errorPage, origin);
     errorUrl.searchParams.set(
@@ -60,10 +63,10 @@ export async function GET(request: Request) {
       hasCode: false,
       hasTokenHash: Boolean(tokenHash),
       type: typeParam,
+      next,
     });
 
-    const errorPage =
-      typeParam === "recovery" ? "/forgot-password" : "/signup";
+    const errorPage = isRecovery ? "/forgot-password" : "/signup";
 
     const errorUrl = new URL(errorPage, origin);
     errorUrl.searchParams.set("error", "missing_code");
@@ -74,17 +77,18 @@ export async function GET(request: Request) {
   const supabase = createClient();
 
   try {
-    // PKCE flow (password recovery and any ConfirmationURL redirects)
+    // PKCE flow: the code verifier created when the reset request was sent
+    // is stored in the server-side cookie and is consumed by this exchange.
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (error) {
       console.error("[auth:callback:pkce]", {
         message: error.message,
         name: error.name,
+        next,
       });
 
-      const errorPage =
-        typeParam === "recovery" ? "/forgot-password" : "/signup";
+      const errorPage = isRecovery ? "/forgot-password" : "/signup";
 
       const errorUrl = new URL(errorPage, origin);
       errorUrl.searchParams.set("error", "invalid_or_expired_link");
@@ -96,8 +100,7 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("[auth:callback:unexpected]", error);
 
-    const errorPage =
-      typeParam === "recovery" ? "/forgot-password" : "/signup";
+    const errorPage = isRecovery ? "/forgot-password" : "/signup";
 
     const errorUrl = new URL(errorPage, origin);
     errorUrl.searchParams.set("error", "authentication_failed");
