@@ -53,17 +53,16 @@ export default async function PublicBusinessPage({
 
   const openingHours = business.opening_hours as OpeningHours;
 
+  // Active services only (RLS); full row is fine — no private owner fields.
   const { data: services } = await supabase
     .from("services")
-    .select("id, business_id, name, description, price_cents, duration_minutes, is_active, sort_order")
+    .select("*")
     .eq("business_id", business.id)
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
-  // Track page view reliably before the serverless response finishes.
   await trackPageView(business.id);
 
-  // Schema has no timezone column yet; default to UTC for slot math.
   const businessTimeZone = "UTC";
   const today = getTodayForTimezone(businessTimeZone);
 
