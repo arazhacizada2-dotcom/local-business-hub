@@ -50,7 +50,6 @@ export async function uploadAvatar(formData: FormData): Promise<ProfileActionRes
   } = await supabase.auth.getUser();
   if (!user) return { error: "You must be logged in to change your avatar." };
 
-  // Keep one fixed object per user so changing formats cannot leave old avatar files behind.
   const avatarPath = `${user.id}/avatar`;
   const { error: uploadError } = await supabase.storage.from("avatars").upload(avatarPath, file, {
     cacheControl: "3600",
@@ -94,15 +93,14 @@ export async function deleteUserAccount(formData: FormData): Promise<ProfileActi
   try {
     admin = createAdminClient();
   } catch {
-    // The service-role key must exist only in the server deployment environment.
     return {
       error:
         "Account deletion is temporarily unavailable because the server is missing its Supabase admin configuration.",
     };
   }
 
-  // Avatar objects are outside PostgreSQL transactions. Remove the private
-  // object before deleting auth.users, and do not delete the account if cleanup fails.
+  // Storage objects are outside PostgreSQL transactions. Remove the private
+  // avatar first and abort before auth deletion if that cleanup cannot complete.
   // The admin client is server-only and avoids relying on client Storage RLS for
   // this destructive operation.
   if (profile?.avatar_path) {
@@ -119,7 +117,10 @@ export async function deleteUserAccount(formData: FormData): Promise<ProfileActi
   // appointments, and page views according to the database schema.
   const { error: deleteError } = await admin.auth.admin.deleteUser(user.id);
   if (deleteError) {
-    return { error: "Could not delete your account. No account data was deleted. Please try again." };
+    return {
+      error:
+        "Account deletion could not be completed. Your account is still active; please try again.",
+    };
   }
 
   await supabase.auth.signOut({ scope: "local" });
