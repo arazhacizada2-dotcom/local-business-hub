@@ -1,6 +1,11 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  createPasswordResetClient,
+  getSupabaseEnv,
+  getSupabaseHostname,
+} from "@/lib/supabase/server";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { EmailOtpType } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
@@ -11,8 +16,6 @@ export interface AuthResult {
   message?: string;
 }
 
-/** Turns any thrown/returned error into a safe, user-facing message while
- * logging the real cause server-side (visible in Vercel's function logs). */
 function logAndDescribe(context: string, err: unknown): string {
   if (err instanceof Error) {
     const cause = (err as Error & { cause?: unknown }).cause;
@@ -28,19 +31,25 @@ function logAndDescribe(context: string, err: unknown): string {
               code: (cause as NodeJS.ErrnoException).code,
             }
           : cause,
+      supabaseHost: (() => {
+        try {
+          return getSupabaseHostname();
+        } catch {
+          return "env-missing";
+        }
+      })(),
     });
 
     if (isRawNetworkFailure(err)) {
-      return "Could not reach the authentication service. Please try again in a moment. If this keeps happening, the site operator should verify NEXT_PUBLIC_SUPABASE_URL is set for Production and that the Supabase project is not paused.";
+      return "Could not reach the authentication service. Please try again in a moment.";
     }
     return err.message;
   }
   // eslint-disable-next-line no-console
-  console.error(`[auth:${context}] non-Error thrown:`, err);
+  console.error(`[auth:${context}] non-Error:`, err);
   return "Something went wrong. Please try again.";
 }
 
-/** True for connection-level failures (thrown or returned by supabase-js). */
 function isRawNetworkFailure(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
@@ -58,11 +67,23 @@ function resolveSiteUrl(): string {
   const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
   if (explicit) return explicit;
 
-  // On Vercel, prefer the deployment host over localhost when SITE_URL is unset.
   const vercel = process.env.VERCEL_URL?.trim();
   if (vercel) return `https://${vercel.replace(/\/$/, "")}`;
 
   return "http://localhost:3000";
+}
+
+/** Prefer IPv4 when the serverless runtime has broken/missing AAAA routes. */
+function preferIpv4() {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const dns = require("node:dns") as typeof import("node:dns");
+    if (typeof dns.setDefaultResultOrder === "function") {
+      dns.setDefaultResultOrder("ipv4first");
+    }
+  } catch {
+    // non-Node runtime
+  }
 }
 
 const ALLOWED_EMAIL_OTP_TYPES: EmailOtpType[] = [
@@ -72,12 +93,6 @@ const ALLOWED_EMAIL_OTP_TYPES: EmailOtpType[] = [
   "email_change",
 ];
 
-/**
- * Exchange a token_hash from an email link for a session.
- * Must only be called from an explicit user action (form POST), never from
- * a bare GET — automated email scanners would otherwise consume the
- * single-use token before the real user confirms.
- */
 export async function confirmEmailOtp(formData: FormData): Promise<void> {
   const tokenHash = String(formData.get("token_hash") || "").trim();
   const typeParam = String(formData.get("type") || "").trim();
@@ -193,40 +208,88 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
   const email = String(formData.get("email") || "").trim();
   if (!email) return { error: "Enter your email address." };
 
+  preferIpv4();
+
+  let supabaseUrl: string;
+  let hostname: string;
+  try {
+    ({ supabaseUrl } = getSupabaseEnv());
+    hostname = getSupabaseHostname();
+  } catch (err) {
+    return { error: logAndDescribe("requestPasswordReset:env", err) };
+  }
+
+  // Validate URL shape before calling Auth (cat config error, not network).
+  if (!hostname.endsWith(".supabase.co") && !hostname.includes("localhost")) {
+    // eslint-disable-next-line no-console
+    console.error("[auth:requestPasswordReset] unexpected Supabase host", {
+      hostname,
+    });
+    return {
+      error:
+        "Authentication is misconfigured (invalid Supabase URL host). Check NEXT_PUBLIC_SUPABASE_URL in Vercel Production.",
+    };
+  }
+
   const redirectTo = `${resolveSiteUrl()}/auth/callback?next=/update-password`;
 
-  // Use the same createClient() path as login/signup so password reset shares
-  // the proven server client, cookie adapter, and env handling. Isolation via
-  // createAnonAuthClient previously returned network errors without retrying
-  // when supabase-js surfaced them as { error } instead of a thrown exception.
-  async function attempt(): Promise<{ ok: true } | { ok: false; error: unknown }> {
-    try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo,
-      });
-      if (error) return { ok: false, error };
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err };
-    }
-  }
+  // eslint-disable-next-line no-console
+  console.error("[auth:requestPasswordReset] starting", {
+    hostname,
+    recoverPath: "/auth/v1/recover",
+    redirectHost: (() => {
+      try {
+        return new URL(redirectTo).hostname;
+      } catch {
+        return "invalid-redirect";
+      }
+    })(),
+  });
 
-  const first = await attempt();
-  if (first.ok) return {};
-
-  if (isRawNetworkFailure(first.error)) {
+  // Connectivity probe to the same origin Auth uses (no secrets logged).
+  try {
+    const healthUrl = `${supabaseUrl}/auth/v1/health`;
+    const healthRes = await fetch(healthUrl, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
     // eslint-disable-next-line no-console
-    console.error(
-      "[auth:requestPasswordReset] network error on first attempt, retrying once",
-      first.error instanceof Error ? first.error.message : first.error
-    );
-    const second = await attempt();
-    if (second.ok) return {};
-    return { error: logAndDescribe("requestPasswordReset:retry", second.error) };
+    console.error("[auth:requestPasswordReset] auth health", {
+      hostname,
+      status: healthRes.status,
+      ok: healthRes.ok,
+    });
+  } catch (probeErr) {
+    // eslint-disable-next-line no-console
+    console.error("[auth:requestPasswordReset] auth health probe failed", {
+      hostname,
+      name: probeErr instanceof Error ? probeErr.name : typeof probeErr,
+      message: probeErr instanceof Error ? probeErr.message : String(probeErr),
+      cause:
+        probeErr instanceof Error
+          ? (probeErr as Error & { cause?: unknown }).cause
+          : undefined,
+    });
+    return {
+      error: logAndDescribe("requestPasswordReset:health", probeErr),
+    };
   }
 
-  return { error: logAndDescribe("requestPasswordReset", first.error) };
+  try {
+    const supabase = createPasswordResetClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    if (error) {
+      return { error: logAndDescribe("requestPasswordReset", error) };
+    }
+
+    return {};
+  } catch (err) {
+    return { error: logAndDescribe("requestPasswordReset", err) };
+  }
 }
 
 export async function updatePassword(formData: FormData): Promise<AuthResult> {
