@@ -1,15 +1,24 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export function createClient() {
-  const cookieStore = cookies();
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+function getSupabaseEnv() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error("Missing Supabase env variables");
   }
+
+  // Trailing slashes break some auth request paths under @supabase/ssr.
+  return {
+    supabaseUrl: supabaseUrl.replace(/\/$/, ""),
+    supabaseAnonKey,
+  };
+}
+
+export function createClient() {
+  const cookieStore = cookies();
+  const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv();
 
   return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
@@ -38,17 +47,10 @@ export function createClient() {
 
 /**
  * Isolated Supabase client for anonymous authentication operations.
- * Currently used by requestPasswordReset().
- *
- * It does not read or write the user's existing auth cookies.
+ * Does not read or write the user's existing auth cookies.
  */
 export function createAnonAuthClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Missing Supabase env variables");
-  }
+  const { supabaseUrl, supabaseAnonKey } = getSupabaseEnv();
 
   return createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {

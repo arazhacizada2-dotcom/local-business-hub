@@ -1,6 +1,6 @@
 "use server";
 
-import { createClient, createAnonAuthClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { EmailOtpType } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
@@ -12,20 +12,7 @@ export interface AuthResult {
 }
 
 /** Turns any thrown/returned error into a safe, user-facing message while
- * logging the real cause server-side (visible in Vercel's function logs)
- * so a production issue is actually diagnosable instead of surfacing only
- * as a generic string in the browser.
- *
- * TEMPORARY DIAGNOSTIC NOTE: this logs err.name/.cause in addition to
- * .message specifically to root-cause a "fetch failed" that showed up in
- * production despite Vercel recording a completed outbound request. The
- * shallow .message alone ("fetch failed") is Node/undici's generic
- * wrapper string for any connection-level failure and doesn't say which
- * one — .cause is where the real reason lives (e.g. a code like
- * ECONNRESET, ETIMEDOUT, or a TLS/cert error). Safe to leave in
- * long-term (no secrets, no PII — email/password/keys are never passed
- * to this function), but flagged here in case you want to trim it once
- * the issue is confirmed fixed. */
+ * logging the real cause server-side (visible in Vercel's function logs). */
 function logAndDescribe(context: string, err: unknown): string {
   if (err instanceof Error) {
     const cause = (err as Error & { cause?: unknown }).cause;
@@ -35,19 +22,16 @@ function logAndDescribe(context: string, err: unknown): string {
       message: err.message,
       cause:
         cause instanceof Error
-          ? { name: cause.name, message: cause.message, code: (cause as NodeJS.ErrnoException).code }
+          ? {
+              name: cause.name,
+              message: cause.message,
+              code: (cause as NodeJS.ErrnoException).code,
+            }
           : cause,
     });
 
-    // Node's fetch (undici) throws exactly this message when it can't
-    // reach the target host at all — DNS failure, connection refused, the
-    // Supabase project paused, or the request never left the function
-    // because the Supabase client was misconfigured. This is the
-    // symptom, not a description a user should see verbatim, so we
-    // translate it into something actionable for whoever is running
-    // this deployment.
-    if (err.message === "fetch failed") {
-      return "Could not reach the authentication service. If you're the site operator: verify NEXT_PUBLIC_SUPABASE_URL is correct and set for the Production environment, and that the Supabase project isn't paused. Check the function logs for this request's [auth:...] entry — it now includes the underlying connection error (err.cause), not just this generic message.";
+    if (isRawNetworkFailure(err)) {
+      return "Could not reach the authentication service. Please try again in a moment. If this keeps happening, the site operator should verify NEXT_PUBLIC_SUPABASE_URL is set for Production and that the Supabase project is not paused.";
     }
     return err.message;
   }
@@ -56,13 +40,29 @@ function logAndDescribe(context: string, err: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
-/** True only for the raw, connection-level fetch failure — never for an
- * actual AuthApiError response from Supabase (those resolve normally and
- * come back as `{ error }`, not a thrown TypeError). Used to decide
- * whether a single retry is safe: retrying on "we never got a response"
- * can't double-fire anything, since nothing was sent successfully. */
+/** True for connection-level failures (thrown or returned by supabase-js). */
 function isRawNetworkFailure(err: unknown): boolean {
-  return err instanceof Error && err.message === "fetch failed";
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg === "fetch failed" ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("econnreset") ||
+    msg.includes("etimedout") ||
+    msg.includes("enotfound")
+  );
+}
+
+function resolveSiteUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
+  if (explicit) return explicit;
+
+  // On Vercel, prefer the deployment host over localhost when SITE_URL is unset.
+  const vercel = process.env.VERCEL_URL?.trim();
+  if (vercel) return `https://${vercel.replace(/\/$/, "")}`;
+
+  return "http://localhost:3000";
 }
 
 const ALLOWED_EMAIL_OTP_TYPES: EmailOtpType[] = [
@@ -139,9 +139,7 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
       password,
       options: {
         data: { full_name: fullName },
-        // PKCE / ConfirmationURL redirects still land on the callback.
-        // Token-hash signup emails should point at /auth/confirm (see template).
-        emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/auth/callback?next=/onboarding`,
+        emailRedirectTo: `${resolveSiteUrl()}/auth/callback?next=/onboarding`,
       },
     });
 
@@ -155,7 +153,6 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
       return { error: error.message };
     }
 
-    // If no session is returned, email confirmation is required
     if (!data.session && data.user) {
       return {
         requiresConfirmation: true,
@@ -196,53 +193,40 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
   const email = String(formData.get("email") || "").trim();
   if (!email) return { error: "Enter your email address." };
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-  const redirectTo = `${siteUrl}/auth/callback?next=/update-password`;
+  const redirectTo = `${resolveSiteUrl()}/auth/callback?next=/update-password`;
 
-  // Uses createAnonAuthClient(), NOT the shared createClient() — this is
-  // an anonymous-only operation, and isolating it means it can't be
-  // affected by a stale/expired session cookie triggering background
-  // token-refresh behavior on the shared client. See the comment on
-  // createAnonAuthClient() in lib/supabase/server.ts for the full
-  // reasoning.
-  async function attempt(): Promise<AuthResult> {
-    const supabase = createAnonAuthClient();
-    // Goes through /auth/callback (which exchanges the recovery code for a
-    // session and sets the auth cookies) and only then on to
-    // /update-password — going straight to /update-password with
-    // redirectTo would leave the visitor unauthenticated on that page,
-    // since @supabase/ssr uses the PKCE flow, not the older implicit
-    // (hash-fragment token) flow.
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
-    if (error) return { error: logAndDescribe("requestPasswordReset", error) };
-    return {};
-  }
-
-  try {
-    return await attempt();
-  } catch (err) {
-    // A single retry, and only for a raw connection-level failure (see
-    // isRawNetworkFailure) — this is a known class of transient issue on
-    // serverless platforms where a pooled/kept-alive connection to an
-    // infrequently-called host gets reset between the pool marking it
-    // reusable and the next request actually using it. Frequently-called
-    // endpoints (a session's /token or /user calls) rarely hit this
-    // because their connections stay warm; a rarely-called one like
-    // /recover is exactly where it tends to surface. Safe to retry
-    // specifically because "fetch failed" here means no request was
-    // ever successfully sent — there's no risk of sending the reset
-    // email twice.
-    if (isRawNetworkFailure(err)) {
-      // eslint-disable-next-line no-console
-      console.error("[auth:requestPasswordReset] first attempt failed with a raw network error, retrying once");
-      try {
-        return await attempt();
-      } catch (retryErr) {
-        return { error: logAndDescribe("requestPasswordReset:retry", retryErr) };
-      }
+  // Use the same createClient() path as login/signup so password reset shares
+  // the proven server client, cookie adapter, and env handling. Isolation via
+  // createAnonAuthClient previously returned network errors without retrying
+  // when supabase-js surfaced them as { error } instead of a thrown exception.
+  async function attempt(): Promise<{ ok: true } | { ok: false; error: unknown }> {
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo,
+      });
+      if (error) return { ok: false, error };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err };
     }
-    return { error: logAndDescribe("requestPasswordReset", err) };
   }
+
+  const first = await attempt();
+  if (first.ok) return {};
+
+  if (isRawNetworkFailure(first.error)) {
+    // eslint-disable-next-line no-console
+    console.error(
+      "[auth:requestPasswordReset] network error on first attempt, retrying once",
+      first.error instanceof Error ? first.error.message : first.error
+    );
+    const second = await attempt();
+    if (second.ok) return {};
+    return { error: logAndDescribe("requestPasswordReset:retry", second.error) };
+  }
+
+  return { error: logAndDescribe("requestPasswordReset", first.error) };
 }
 
 export async function updatePassword(formData: FormData): Promise<AuthResult> {
@@ -258,12 +242,11 @@ export async function updatePassword(formData: FormData): Promise<AuthResult> {
       data: { user },
     } = await supabase.auth.getUser();
 
-    // getUser() succeeding here is what proves the recovery link's code
-    // was already exchanged for a real session by /auth/callback — if
-    // there's no user, the visitor reached this page without a valid
-    // (or already-used/expired) recovery link.
     if (!user) {
-      return { error: "Your reset link has expired or was already used. Please request a new one." };
+      return {
+        error:
+          "Your reset link has expired or was already used. Please request a new one.",
+      };
     }
 
     const { error } = await supabase.auth.updateUser({ password });
