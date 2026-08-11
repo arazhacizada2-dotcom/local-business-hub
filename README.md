@@ -17,12 +17,27 @@ Tailwind CSS and Supabase (Postgres + Auth + Row Level Security).
 - **RLS** — every table has Row Level Security enabled; owners only see their own business's private data, public pages only expose intended fields.
 - **Responsive** — mobile top nav + tab bar on the dashboard, desktop sidebar; booking widget and public page adapt down to phone width.
 
-## What's intentionally NOT implemented yet
+---
 
-- **Payments** — pricing UI (Free / Pro / Business) is shown, but no Stripe integration. Every account is created on `plan = 'free'`. The `businesses.plan` column and server actions are structured so Stripe checkout + webhooks can be added later without a data-model change.
-- **Email notifications** — bookings are stored with `status = 'pending'`; no confirmation emails are sent yet (see "Before accepting real customers" below).
-- **Logo/photo upload** — the `logo_url` column exists but there's no upload UI yet.
-- **Multi-staff / multi-location** — the model is one business per owner.
+## Password reset / recovery email configuration
+
+The password-reset flow uses Supabase's PKCE flow, but the recovery email must **not** contain the default `{{ .ConfirmationURL }}` as its clickable link. That URL performs the one-time verification on `GET`, which can be consumed by Gmail/Outlook/security scanners before the user clicks it and produces `otp_expired`.
+
+The repository contains the scanner-safe template at [`supabase/templates/recovery.html`](./supabase/templates/recovery.html). It sends the `{{ .TokenHash }}` to the app's `/auth/callback` route without verifying it. The callback then displays `/auth/confirm`, and only the user's explicit POST action calls `verifyOtp`.
+
+### Hosted Supabase production configuration
+
+Supabase hosted projects do not read the repository template automatically. In **Supabase → Authentication → Email Templates → Reset Password**, replace the production recovery email HTML with the contents of `supabase/templates/recovery.html`.
+
+Keep these Redirect URLs configured:
+
+- `https://local-business-hub-ashen.vercel.app/auth/callback`
+- `http://localhost:3000/auth/callback`
+- `https://local-business-hub-ashen.vercel.app/update-password`
+
+The application sends password-reset requests to `/auth/callback?next=/update-password`, so the existing callback allow-list entries remain sufficient.
+
+If an email provider performs link tracking, disable tracking for the recovery email as well; otherwise the provider can rewrite or prefetch the authentication URL.
 
 ---
 
@@ -93,24 +108,13 @@ This is a functional MVP, not a launch-ready product. Before charging real
 customers, you'd still need:
 
 1. **Stripe billing** — checkout for Pro/Business plans, webhook handling to update `businesses.plan`, and gating features (e.g. service limits) by plan.
-2. **Transactional email** — booking confirmations/cancellations to customers and owners (e.g. via Resend or Supabase's SMTP integration), plus email verification enforcement on signup.
+2. **Email notifications** — bookings are stored with `status = 'pending'`; no confirmation emails are sent yet (see "Before accepting real customers" below).
 3. **Abuse protection on the public booking form** — rate limiting and a CAPTCHA/bot check, since it currently accepts anonymous inserts by design.
 4. **Logo/photo upload** — wire up Supabase Storage for `logo_url`.
-5. **Timezone handling** — the app currently assumes the business and its customers share one local time zone (the browser's); a `timezone` column plus explicit conversion is needed for businesses serving remote/multi-timezone customers.
-6. **Generated DB types** — replace the loosely-typed `supabase-js` calls with types generated via `supabase gen types typescript`, for compile-time safety on every query.
-7. **Monitoring & error tracking** (e.g. Sentry) and structured logging for the server actions.
-8. **Automated tests** — none exist yet; at minimum, integration tests for the booking flow's concurrency behavior (the double-booking exclusion constraint) and RLS policies.
-9. **Legal/compliance basics** — terms of service, privacy policy, cookie notice.
-10. **A production `npm run build` pass in a networked environment** — this project was built in a sandboxed environment without registry access, so dependencies were never actually installed here; see note below.
-
-## A transparency note on verification
-
-I wasn't able to run `npm install` or `next build` in this environment — the
-sandbox has no network access, so `npm install` failed with a 403 (no
-registry access) and there was no offline cache to fall back on. Instead of
-skipping verification, I manually cross-checked every import against its
-actual export across the whole codebase (types, server actions, components)
-and reviewed each server action's logic line by line. That's a real check,
-but it's not a substitute for an actual compile — run `npm install && npm run
-build` locally as your first step, and treat any TypeScript errors that
-surface as more trustworthy than anything I've said above.
+5. **Multi-staff / multi-location** — the model is one business per owner.
+6. **Timezone handling** — the app currently assumes the business and its customers share one local time zone (the browser's); a `timezone` column plus explicit conversion is needed for businesses serving remote/multi-timezone customers.
+7. **Generated DB types** — replace the loosely-typed `supabase-js` calls with types generated via `supabase gen types typescript`, for compile-time safety on every query.
+8. **Monitoring & error tracking** (e.g. Sentry) and structured logging for the server actions.
+9. **Automated tests** — none exist yet; at minimum, integration tests for the booking flow's concurrency behavior (the double-booking exclusion constraint) and RLS policies.
+10. **Legal/compliance basics** — terms of service, privacy policy, cookie notice.
+11. **A production `npm run build` pass in a networked environment** — this project was built in a sandboxed environment without registry access; dependencies may not be installed here.
