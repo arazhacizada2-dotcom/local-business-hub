@@ -76,7 +76,7 @@ function resolveSiteUrl(): string {
 /** Prefer IPv4 when the serverless runtime has broken/missing AAAA routes. */
 function preferIpv4() {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // Node serverless only — ignore if dns module is unavailable.
     const dns = require("node:dns") as typeof import("node:dns");
     if (typeof dns.setDefaultResultOrder === "function") {
       dns.setDefaultResultOrder("ipv4first");
@@ -219,7 +219,7 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
     return { error: logAndDescribe("requestPasswordReset:env", err) };
   }
 
-  // Validate URL shape before calling Auth (cat config error, not network).
+  // Validate URL shape before calling Auth (config error, not network).
   if (!hostname.endsWith(".supabase.co") && !hostname.includes("localhost")) {
     // eslint-disable-next-line no-console
     console.error("[auth:requestPasswordReset] unexpected Supabase host", {
