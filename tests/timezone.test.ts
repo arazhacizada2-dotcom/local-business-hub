@@ -61,3 +61,16 @@ test("DST spring-forward date retains the intended business-local opening hour",
   assert.equal(instant.toISOString(), "2030-03-31T07:00:00.000Z");
   assert.equal(formatInTimeZone(instant, "Europe/Berlin", { hour: "2-digit", minute: "2-digit" }), "09:00");
 });
+
+test("DST fall-back date retains the intended business-local opening hour", () => {
+  const instant = zonedTimeToUtc("2030-10-27", "09:00", "Europe/Berlin");
+  assert.equal(instant.toISOString(), "2030-10-27T08:00:00.000Z");
+  assert.equal(formatInTimeZone(instant, "Europe/Berlin", { hour: "2-digit", minute: "2-digit" }), "09:00");
+});
+
+test("midnight boundaries stay on the intended business calendar date", () => {
+  const justBeforeTokyoMidnight = new Date("2030-07-14T14:59:59.000Z");
+  const justAfterTokyoMidnight = new Date("2030-07-14T15:00:01.000Z");
+  assert.equal(formatDateISOInTimeZone(justBeforeTokyoMidnight, "Asia/Tokyo"), "2030-07-14");
+  assert.equal(formatDateISOInTimeZone(justAfterTokyoMidnight, "Asia/Tokyo"), "2030-07-15");
+});
