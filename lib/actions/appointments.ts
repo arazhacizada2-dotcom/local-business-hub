@@ -6,7 +6,7 @@ import { bookingSchema } from "@/lib/validation/booking";
 import { revalidatePath } from "next/cache";
 import { sendBookingNotification } from "@/lib/email";
 import { formatDateISOInTimeZone, isValidIanaTimeZone } from "@/lib/timezone";
-import { generateAvailableSlots } from "@/lib/slots";
+import { generateAvailableSlots, isRequestedSlotAvailable } from "@/lib/slots";
 import type { OpeningHours } from "@/types/database";
 
 export interface ActionResult {
@@ -136,10 +136,7 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
     publicBusiness.timezone
   );
 
-  const requestedSlotTime = startsAt.getTime();
-  const slotIsAvailable = availableSlots.some((slot) => slot.getTime() === requestedSlotTime);
-
-  if (!slotIsAvailable) {
+  if (!isRequestedSlotAvailable(startsAt, availableSlots)) {
     return { error: "That time is not available. Please choose another slot." };
   }
 
