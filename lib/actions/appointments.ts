@@ -5,6 +5,9 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { bookingSchema } from "@/lib/validation/booking";
 import { revalidatePath } from "next/cache";
 import { sendBookingNotification } from "@/lib/email";
+import { formatDateISOInTimeZone, isValidIanaTimeZone } from "@/lib/timezone";
+import { generateAvailableSlots } from "@/lib/slots";
+import type { OpeningHours } from "@/types/database";
 
 export interface ActionResult {
   error?: string;
@@ -27,7 +30,7 @@ export async function trackPageView(businessId: string): Promise<void> {
 
 /**
  * Returns already-booked [start, end] ranges (as ISO strings) for a business
- * on a given date via a security-definer RPC — no customer PII is exposed.
+ * on a given business-local calendar date.
  */
 export async function getBookedRanges(businessId: string, dateISO: string) {
   const rate = checkRateLimit("booked_ranges", RATE_LIMITS.bookedRanges);
@@ -94,22 +97,50 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
     .eq("is_active", true)
     .maybeSingle();
 
-  // Public contact email only — not owner_id / plan (businesses_public view).
   const { data: publicBusiness } = await supabase
     .from("businesses_public")
-    .select("email")
+    .select("email, opening_hours, timezone")
     .eq("id", businessId)
     .maybeSingle();
 
-  if (serviceError || !service || !publicBusiness?.email) {
+  if (serviceError || !service || !publicBusiness?.email || !publicBusiness.timezone) {
     return { error: "That service is no longer available. Please refresh and try again." };
+  }
+
+  if (!isValidIanaTimeZone(publicBusiness.timezone)) {
+    return { error: "This business has an invalid timezone configuration. Please contact the business owner." };
   }
 
   await supabase.from("page_views").insert({ business_id: businessId, event_type: "booking_attempt" });
 
   const startsAt = new Date(startsAtISO);
-  if (Number.isNaN(startsAt.getTime()) || startsAt.getTime() < Date.now() - 60_000) {
+  if (Number.isNaN(startsAt.getTime())) {
     return { error: "Please choose a valid, upcoming time." };
+  }
+
+  const requestedLocalDate = formatDateISOInTimeZone(startsAt, publicBusiness.timezone);
+  const { data: bookedRanges, error: bookedRangesError } = await supabase.rpc("get_booked_ranges", {
+    p_business_id: businessId,
+    p_day: requestedLocalDate,
+  });
+
+  if (bookedRangesError) {
+    return { error: "Could not verify availability. Please refresh and try again." };
+  }
+
+  const availableSlots = generateAvailableSlots(
+    requestedLocalDate,
+    publicBusiness.opening_hours as OpeningHours,
+    service.duration_minutes as number,
+    bookedRanges ?? [],
+    publicBusiness.timezone
+  );
+
+  const requestedSlotTime = startsAt.getTime();
+  const slotIsAvailable = availableSlots.some((slot) => slot.getTime() === requestedSlotTime);
+
+  if (!slotIsAvailable) {
+    return { error: "That time is not available. Please choose another slot." };
   }
 
   const durationMinutes = service.duration_minutes as number;
@@ -133,6 +164,9 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
     }
     if (error.code === "42501") {
       return { error: "Booking is not allowed for this service. Please refresh and try again." };
+    }
+    if (error.message?.includes("opening hours")) {
+      return { error: "That time is outside the business opening hours. Please choose another slot." };
     }
     return { error: "Something went wrong. Please try again." };
   }
