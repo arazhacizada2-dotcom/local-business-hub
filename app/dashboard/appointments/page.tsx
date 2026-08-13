@@ -11,7 +11,7 @@ export default async function AppointmentsPage() {
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("id")
+    .select("id, timezone")
     .eq("owner_id", user.id)
     .maybeSingle();
   if (!business) redirect("/onboarding");
@@ -23,5 +23,10 @@ export default async function AppointmentsPage() {
     .order("starts_at", { ascending: false })
     .limit(100);
 
-  return <AppointmentList initialAppointments={appointments ?? []} />;
+  return (
+    <AppointmentList
+      initialAppointments={appointments ?? []}
+      timeZone={business.timezone}
+    />
+  );
 }
