@@ -26,8 +26,6 @@ declare
   open_at timestamptz;
   close_at timestamptz;
 begin
-  -- Status-only updates should not be rejected because historical bookings
-  -- may legitimately sit outside today's opening hours.
   if tg_op = 'UPDATE'
      and new.starts_at is not distinct from old.starts_at
      and new.ends_at is not distinct from old.ends_at
@@ -82,11 +80,23 @@ begin
   end if;
 
   local_start := new.starts_at at time zone business_timezone;
-  day_key := lower(to_char(local_start, 'Dy'));
+  day_key := case extract(isodow from local_start)::int
+    when 1 then 'mon'
+    when 2 then 'tue'
+    when 3 then 'wed'
+    when 4 then 'thu'
+    when 5 then 'fri'
+    when 6 then 'sat'
+    when 7 then 'sun'
+  end;
   day_hours := opening -> day_key;
 
   if day_hours is null or coalesce((day_hours ->> 'closed')::boolean, false) then
     raise exception 'Appointment is outside business opening hours';
+  end if;
+
+  if day_hours ->> 'open' is null or day_hours ->> 'close' is null then
+    raise exception 'Business opening hours are invalid';
   end if;
 
   open_at := ((local_start::date::text || ' ' || (day_hours ->> 'open'))::timestamp at time zone business_timezone);
