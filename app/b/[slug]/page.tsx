@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 /** Columns exposed by public.businesses_public (no owner_id / plan / etc.). */
 const PUBLIC_BUSINESS_COLUMNS =
-  "id, slug, name, business_type, description, address, phone, email, logo_url, opening_hours" as const;
+  "id, slug, name, business_type, description, address, phone, email, logo_url, timezone, opening_hours" as const;
 
 function getTodayForTimezone(timeZone: string) {
   const weekday = new Intl.DateTimeFormat("en-US", {
@@ -52,6 +52,7 @@ export default async function PublicBusinessPage({
   if (!business) notFound();
 
   const openingHours = business.opening_hours as OpeningHours;
+  const businessTimeZone = business.timezone;
 
   // Active services only (RLS); full row is fine — no private owner fields.
   const { data: services } = await supabase
@@ -63,7 +64,6 @@ export default async function PublicBusinessPage({
 
   await trackPageView(business.id);
 
-  const businessTimeZone = "UTC";
   const today = getTodayForTimezone(businessTimeZone);
 
   return (
@@ -162,6 +162,10 @@ export default async function PublicBusinessPage({
           <h2 className="mt-12 font-display text-2xl text-ink">
             Opening hours
           </h2>
+
+          <p className="mt-2 text-xs text-ink2">
+            Business timezone: {businessTimeZone}
+          </p>
 
           <div className="mt-6 max-w-xs divide-y divide-line border-t border-line font-mono text-sm">
             {DAY_ORDER.map((day) => {
