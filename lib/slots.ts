@@ -17,6 +17,18 @@ const DAY_KEYS: (keyof OpeningHours)[] = [
 ];
 
 /**
+ * Returns true when the requested instant exactly matches one of the
+ * server-generated available slots for the business-local calendar date.
+ */
+export function isRequestedSlotAvailable(
+  requestedSlot: Date,
+  availableSlots: Date[]
+): boolean {
+  const requestedTime = requestedSlot.getTime();
+  return availableSlots.some((slot) => slot.getTime() === requestedTime);
+}
+
+/**
  * Generates available appointment slots using the BUSINESS timezone,
  * not the Vercel/server timezone.
  */
