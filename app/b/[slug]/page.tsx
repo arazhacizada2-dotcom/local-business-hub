@@ -13,9 +13,20 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-/** Columns exposed by public.businesses_public (no owner_id / plan / etc.). */
-const PUBLIC_BUSINESS_COLUMNS =
-  "id, slug, name, business_type, description, address, phone, email, logo_url, timezone, opening_hours" as const;
+/** Public fields returned by get_public_business_by_slug; no owner_id / plan / onboarding state. */
+type PublicBusiness = {
+  id: string;
+  slug: string;
+  name: string;
+  business_type: string;
+  description: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  logo_url: string | null;
+  timezone: string;
+  opening_hours: OpeningHours;
+};
 
 function getTodayForTimezone(timeZone: string) {
   const weekday = new Intl.DateTimeFormat("en-US", {
@@ -43,18 +54,26 @@ export default async function PublicBusinessPage({
 }) {
   const supabase = createClient();
 
-  const { data: business } = await supabase
-    .from("businesses_public")
-    .select(PUBLIC_BUSINESS_COLUMNS)
-    .eq("slug", params.slug)
-    .maybeSingle();
+  // Use a dedicated security-definer public lookup so anon runtime access does
+  // not depend on PostgREST view permissions/schema-cache state. The function
+  // returns exactly the same public fields as businesses_public and nothing else.
+  const { data, error } = await supabase.rpc("get_public_business_by_slug", {
+    p_slug: params.slug,
+  });
+
+  if (error) {
+    console.error("Public business lookup failed:", error.message);
+    throw new Error("Public business lookup failed");
+  }
+
+  const business = (data?.[0] ?? null) as PublicBusiness | null;
 
   if (!business) notFound();
 
-  const openingHours = business.opening_hours as OpeningHours;
+  const openingHours = business.opening_hours;
   const businessTimeZone = business.timezone;
 
-  // Active services only (RLS); full row is fine — no private owner fields.
+  // Active services only; public access is limited by the existing RLS policy.
   const { data: services } = await supabase
     .from("services")
     .select("*")
