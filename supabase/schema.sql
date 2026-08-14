@@ -237,7 +237,8 @@ create policy "businesses_delete_own" on public.businesses for delete using (aut
 
 create or replace view public.businesses_public with (security_invoker = false) as
 select id, slug, name, business_type, description, address, phone, email, logo_url, timezone, opening_hours
-from public.businesses;
+from public.businesses
+where onboarding_complete = true;
 
 revoke all on public.businesses_public from public;
 grant select on public.businesses_public to anon, authenticated;
@@ -245,7 +246,6 @@ grant select on public.businesses_public to anon, authenticated;
 create policy "services_owner_all" on public.services for all using (
   exists (select 1 from public.businesses b where b.id = services.business_id and b.owner_id = auth.uid())
 );
-create policy "services_select_public_active" on public.services for select using (is_active = true);
 
 create policy "appointments_owner_all" on public.appointments for all using (
   exists (select 1 from public.businesses b where b.id = appointments.business_id and b.owner_id = auth.uid())
@@ -256,9 +256,11 @@ create policy "appointments_insert_public" on public.appointments for insert wit
   and ends_at > starts_at
   and exists (
     select 1 from public.services s
+    join public.businesses b on b.id = s.business_id
     where s.id = service_id
       and s.business_id = appointments.business_id
       and s.is_active = true
+      and b.onboarding_complete = true
   )
 );
 
@@ -311,6 +313,7 @@ as $$
     b.opening_hours
   from public.businesses b
   where b.slug = p_slug
+    and b.onboarding_complete = true
   limit 1;
 $$;
 
@@ -350,11 +353,75 @@ as $$
     b.opening_hours
   from public.businesses b
   where b.id = p_business_id
+    and b.onboarding_complete = true
   limit 1;
 $$;
 
 revoke all on function public.get_public_business_by_id(uuid) from public;
 grant execute on function public.get_public_business_by_id(uuid) to anon, authenticated;
+
+create or replace function public.get_public_services_by_business_id(p_business_id uuid)
+returns table (
+  id uuid,
+  name text,
+  description text,
+  price_cents integer,
+  duration_minutes integer,
+  sort_order integer
+)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select
+    s.id,
+    s.name,
+    s.description,
+    s.price_cents,
+    s.duration_minutes,
+    s.sort_order
+  from public.services s
+  join public.businesses b on b.id = s.business_id
+  where s.business_id = p_business_id
+    and s.is_active = true
+    and b.onboarding_complete = true
+  order by s.sort_order asc, s.created_at asc;
+$$;
+
+revoke all on function public.get_public_services_by_business_id(uuid) from public;
+grant execute on function public.get_public_services_by_business_id(uuid) to anon, authenticated;
+
+create or replace function public.get_public_service_by_id(p_service_id uuid, p_business_id uuid)
+returns table (
+  id uuid,
+  business_id uuid,
+  name text,
+  duration_minutes integer,
+  is_active boolean
+)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select
+    s.id,
+    s.business_id,
+    s.name,
+    s.duration_minutes,
+    s.is_active
+  from public.services s
+  join public.businesses b on b.id = s.business_id
+  where s.id = p_service_id
+    and s.business_id = p_business_id
+    and s.is_active = true
+    and b.onboarding_complete = true
+  limit 1;
+$$;
+
+revoke all on function public.get_public_service_by_id(uuid, uuid) from public;
+grant execute on function public.get_public_service_by_id(uuid, uuid) to anon, authenticated;
 
 create policy "page_views_owner_select" on public.page_views for select using (
   exists (select 1 from public.businesses b where b.id = page_views.business_id and b.owner_id = auth.uid())
