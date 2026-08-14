@@ -13,7 +13,6 @@ import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-/** Public fields returned by get_public_business_by_slug; no owner_id / plan / onboarding state. */
 type PublicBusiness = {
   id: string;
   slug: string;
@@ -54,9 +53,6 @@ export default async function PublicBusinessPage({
 }) {
   const supabase = createClient();
 
-  // Use a dedicated security-definer public lookup so anon runtime access does
-  // not depend on PostgREST view permissions/schema-cache state. The function
-  // returns exactly the same public fields as businesses_public and nothing else.
   const { data, error } = await supabase.rpc("get_public_business_by_slug", {
     p_slug: params.slug,
   });
@@ -73,7 +69,6 @@ export default async function PublicBusinessPage({
   const openingHours = business.opening_hours;
   const businessTimeZone = business.timezone;
 
-  // Active services only; public access is limited by the existing RLS policy.
   const { data: services } = await supabase
     .from("services")
     .select("*")
@@ -89,10 +84,7 @@ export default async function PublicBusinessPage({
     <main className="min-h-screen bg-paper">
       <header className="border-b border-line bg-white">
         <div className="container-page flex items-center justify-between py-5">
-          <Link
-            href="/"
-            className="font-display text-base text-ink"
-          >
+          <Link href="/" className="font-display text-base text-ink">
             Local Business Hub
           </Link>
         </div>
@@ -115,17 +107,9 @@ export default async function PublicBusinessPage({
           )}
 
           <div className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm text-ink2">
-            {business.address && (
-              <span>📍 {business.address}</span>
-            )}
-
-            {business.phone && (
-              <span>📞 {business.phone}</span>
-            )}
-
-            {business.email && (
-              <span>✉️ {business.email}</span>
-            )}
+            {business.address && <span>📍 {business.address}</span>}
+            {business.phone && <span>📞 {business.phone}</span>}
+            {business.email && <span>✉️ {business.email}</span>}
           </div>
 
           <a
@@ -139,14 +123,10 @@ export default async function PublicBusinessPage({
 
       <section className="container-page grid gap-10 py-14 lg:grid-cols-[1fr_380px]">
         <div>
-          <h2 className="font-display text-2xl text-ink">
-            Services
-          </h2>
+          <h2 className="font-display text-2xl text-ink">Services</h2>
 
           {!services || services.length === 0 ? (
-            <p className="mt-4 text-sm text-ink2">
-              No services listed yet.
-            </p>
+            <p className="mt-4 text-sm text-ink2">No services listed yet.</p>
           ) : (
             <div className="mt-6 divide-y divide-line border-t border-line">
               {services.map((s) => (
@@ -155,21 +135,14 @@ export default async function PublicBusinessPage({
                   className="flex items-center justify-between gap-6 py-4"
                 >
                   <div>
-                    <p className="font-medium text-ink">
-                      {s.name}
-                    </p>
-
+                    <p className="font-medium text-ink">{s.name}</p>
                     {s.description && (
-                      <p className="mt-1 text-sm text-ink2">
-                        {s.description}
-                      </p>
+                      <p className="mt-1 text-sm text-ink2">{s.description}</p>
                     )}
-
                     <p className="mt-1 font-mono text-xs text-ink2">
                       {formatDuration(s.duration_minutes)}
                     </p>
                   </div>
-
                   <p className="shrink-0 font-mono text-ink">
                     {formatPrice(s.price_cents)}
                   </p>
@@ -178,10 +151,7 @@ export default async function PublicBusinessPage({
             </div>
           )}
 
-          <h2 className="mt-12 font-display text-2xl text-ink">
-            Opening hours
-          </h2>
-
+          <h2 className="mt-12 font-display text-2xl text-ink">Opening hours</h2>
           <p className="mt-2 text-xs text-ink2">
             Business timezone: {businessTimeZone}
           </p>
@@ -189,40 +159,28 @@ export default async function PublicBusinessPage({
           <div className="mt-6 max-w-xs divide-y divide-line border-t border-line font-mono text-sm">
             {DAY_ORDER.map((day) => {
               const hours = openingHours[day];
-
               return (
                 <div
                   key={day}
                   className={
                     "flex items-center justify-between py-2.5 " +
-                    (day === today
-                      ? "font-medium text-ink"
-                      : "text-ink2")
+                    (day === today ? "font-medium text-ink" : "text-ink2")
                   }
                 >
                   <span>{DAY_LABELS[day]}</span>
-
-                  <span>
-                    {hours.closed
-                      ? "Closed"
-                      : `${hours.open} – ${hours.close}`}
-                  </span>
+                  <span>{hours.closed ? "Closed" : `${hours.open} – ${hours.close}`}</span>
                 </div>
               );
             })}
           </div>
         </div>
 
-        <div
-          id="book"
-          className="lg:sticky lg:top-8 lg:self-start"
-        >
-          <h2 className="mb-4 font-display text-xl text-ink">
-            Book an appointment
-          </h2>
+        <div id="book" className="lg:sticky lg:top-8 lg:self-start">
+          <h2 className="mb-4 font-display text-xl text-ink">Book an appointment</h2>
 
           <BookingWidget
             businessId={business.id}
+            businessSlug={business.slug}
             services={services ?? []}
             openingHours={openingHours}
             timeZone={businessTimeZone}
