@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { sendBookingNotification } from "@/lib/email";
 import { formatDateISOInTimeZone, isValidIanaTimeZone } from "@/lib/timezone";
 import { generateAvailableSlots, isRequestedSlotAvailable } from "@/lib/slots";
+import { isBookableServiceForBusiness } from "@/lib/booking";
 import type { OpeningHours } from "@/types/database";
 
 export interface ActionResult {
@@ -105,7 +106,7 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
 
   if (
     serviceError ||
-    !service ||
+    !isBookableServiceForBusiness(service, businessId) ||
     publicBusinessError ||
     !publicBusiness?.email ||
     !publicBusiness.timezone
