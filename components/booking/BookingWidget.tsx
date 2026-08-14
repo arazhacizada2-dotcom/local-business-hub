@@ -7,11 +7,19 @@ import { Card } from "@/components/ui/Card";
 import {
   formatPrice,
   formatDuration,
-  type Service,
   type OpeningHours,
 } from "@/types/database";
 import { getBookedRanges, createBooking } from "@/lib/actions/appointments";
 import { generateAvailableSlots } from "@/lib/slots";
+
+type PublicBookingService = {
+  id: string;
+  name: string;
+  description: string | null;
+  price_cents: number;
+  duration_minutes: number;
+  sort_order: number;
+};
 
 function getTodayInTimeZone(timeZone: string): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -57,7 +65,7 @@ export function BookingWidget({
 }: {
   businessId: string;
   businessSlug: string;
-  services: Service[];
+  services: PublicBookingService[];
   openingHours: OpeningHours;
   timeZone: string;
 }) {

@@ -27,6 +27,15 @@ type PublicBusiness = {
   opening_hours: OpeningHours;
 };
 
+type PublicService = {
+  id: string;
+  name: string;
+  description: string | null;
+  price_cents: number;
+  duration_minutes: number;
+  sort_order: number;
+};
+
 function getTodayForTimezone(timeZone: string) {
   const weekday = new Intl.DateTimeFormat("en-US", {
     weekday: "short",
@@ -69,12 +78,16 @@ export default async function PublicBusinessPage({
   const openingHours = business.opening_hours;
   const businessTimeZone = business.timezone;
 
-  const { data: services } = await supabase
-    .from("services")
-    .select("*")
-    .eq("business_id", business.id)
-    .eq("is_active", true)
-    .order("sort_order", { ascending: true });
+  const { data: serviceData, error: serviceError } = await supabase.rpc(
+    "get_public_services_by_business_id",
+    { p_business_id: business.id }
+  );
+
+  if (serviceError) {
+    console.error("Public service lookup failed:", serviceError.message);
+  }
+
+  const services = (serviceData ?? []) as PublicService[];
 
   await trackPageView(business.id);
 
@@ -125,7 +138,7 @@ export default async function PublicBusinessPage({
         <div>
           <h2 className="font-display text-2xl text-ink">Services</h2>
 
-          {!services || services.length === 0 ? (
+          {!services.length ? (
             <p className="mt-4 text-sm text-ink2">No services listed yet.</p>
           ) : (
             <div className="mt-6 divide-y divide-line border-t border-line">
@@ -181,7 +194,7 @@ export default async function PublicBusinessPage({
           <BookingWidget
             businessId={business.id}
             businessSlug={business.slug}
-            services={services ?? []}
+            services={services}
             openingHours={openingHours}
             timeZone={businessTimeZone}
           />
