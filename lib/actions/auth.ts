@@ -43,10 +43,10 @@ function logAndDescribe(context: string, err: unknown): string {
     if (isRawNetworkFailure(err)) {
       return "Could not reach the authentication service. Please try again in a moment.";
     }
-    return err.message;
   }
+
   // eslint-disable-next-line no-console
-  console.error(`[auth:${context}] non-Error:`, err);
+  console.error(`[auth:${context}] non-public error`, err);
   return "Something went wrong. Please try again.";
 }
 
@@ -73,10 +73,8 @@ function resolveSiteUrl(): string {
   return "http://localhost:3000";
 }
 
-/** Prefer IPv4 when the serverless runtime has broken/missing AAAA routes. */
 function preferIpv4() {
   try {
-    // Node serverless only — ignore if dns module is unavailable.
     const dns = require("node:dns") as typeof import("node:dns");
     if (typeof dns.setDefaultResultOrder === "function") {
       dns.setDefaultResultOrder("ipv4first");
@@ -132,9 +130,6 @@ export async function confirmEmailOtp(formData: FormData): Promise<void> {
       };
     }
   } catch (err) {
-    // Next.js implements redirect() as a control-flow exception. Keep all
-    // redirects outside this try/catch so a successful verification cannot
-    // be converted into the generic authentication_failed path.
     console.error("[auth:confirmEmailOtp:unexpected]", err);
     redirect(`${errorPage}?error=authentication_failed`);
   }
@@ -148,8 +143,6 @@ export async function confirmEmailOtp(formData: FormData): Promise<void> {
     redirect(`${errorPage}?error=invalid_or_expired_link`);
   }
 
-  // verifyOtp() has established the Supabase recovery session and updated
-  // the server-side auth cookies. Redirect only after it has fully returned.
   redirect(next);
 }
 
@@ -179,7 +172,8 @@ export async function signUp(formData: FormData): Promise<AuthResult> {
             "Too many signup attempts. Please wait a few minutes before trying again.",
         };
       }
-      return { error: error.message };
+      console.error("[auth:signUp] Supabase error", error.message);
+      return { error: "Could not create your account. Please try again." };
     }
 
     if (!data.session && data.user) {
@@ -233,21 +227,15 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
     return { error: logAndDescribe("requestPasswordReset:env", err) };
   }
 
-  // Validate URL shape before calling Auth (config error, not network).
   if (!hostname.endsWith(".supabase.co") && !hostname.includes("localhost")) {
-    // eslint-disable-next-line no-console
     console.error("[auth:requestPasswordReset] unexpected Supabase host", {
       hostname,
     });
-    return {
-      error:
-        "Authentication is misconfigured (invalid Supabase URL host). Check NEXT_PUBLIC_SUPABASE_URL in Vercel Production.",
-    };
+    return { error: "Authentication service is temporarily unavailable. Please try again." };
   }
 
   const redirectTo = `${resolveSiteUrl()}/auth/callback?next=/update-password`;
 
-  // eslint-disable-next-line no-console
   console.error("[auth:requestPasswordReset] starting", {
     hostname,
     recoverPath: "/auth/v1/recover",
@@ -260,7 +248,6 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
     })(),
   });
 
-  // Connectivity probe to the same origin Auth uses (no secrets logged).
   try {
     const healthUrl = `${supabaseUrl}/auth/v1/health`;
     const healthRes = await fetch(healthUrl, {
@@ -268,14 +255,12 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
       headers: { Accept: "application/json" },
       cache: "no-store",
     });
-    // eslint-disable-next-line no-console
     console.error("[auth:requestPasswordReset] auth health", {
       hostname,
       status: healthRes.status,
       ok: healthRes.ok,
     });
   } catch (probeErr) {
-    // eslint-disable-next-line no-console
     console.error("[auth:requestPasswordReset] auth health probe failed", {
       hostname,
       name: probeErr instanceof Error ? probeErr.name : typeof probeErr,
@@ -285,9 +270,7 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
           ? (probeErr as Error & { cause?: unknown }).cause
           : undefined,
     });
-    return {
-      error: logAndDescribe("requestPasswordReset:health", probeErr),
-    };
+    return { error: logAndDescribe("requestPasswordReset:health", probeErr) };
   }
 
   try {
@@ -297,7 +280,14 @@ export async function requestPasswordReset(formData: FormData): Promise<AuthResu
     });
 
     if (error) {
-      return { error: logAndDescribe("requestPasswordReset", error) };
+      if (error.message === "email rate limit exceeded") {
+        return {
+          error:
+            "Too many password reset attempts. Please wait a few minutes before trying again.",
+        };
+      }
+      console.error("[auth:requestPasswordReset] Supabase error", error.message);
+      return {};
     }
 
     return {};
@@ -329,9 +319,6 @@ export async function updatePassword(formData: FormData): Promise<AuthResult> {
     const { error } = await supabase.auth.updateUser({ password });
     if (error) return { error: logAndDescribe("updatePassword", error) };
 
-    // Updating a recovery password establishes/retains an authenticated
-    // session. End only this local recovery session so the user must
-    // explicitly sign in with the new password before reaching the dashboard.
     const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
     if (signOutError) {
       return { error: logAndDescribe("updatePassword:signOut", signOutError) };
