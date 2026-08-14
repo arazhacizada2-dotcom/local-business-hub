@@ -43,7 +43,7 @@ export async function createService(formData: FormData): Promise<ActionResult> {
     duration_minutes: Math.round(duration),
   });
 
-  if (error) return { error: error.message };
+  if (error) return { error: "Could not create the service. Please try again." };
 
   revalidatePath("/dashboard/services");
   return {};
@@ -80,7 +80,7 @@ export async function updateService(formData: FormData): Promise<ActionResult> {
     .eq("id", serviceId)
     .eq("business_id", businessId);
 
-  if (error) return { error: error.message };
+  if (error) return { error: "Could not update the service. Please try again." };
 
   revalidatePath("/dashboard/services");
   return {};
@@ -102,7 +102,7 @@ export async function toggleServiceActive(serviceId: string, isActive: boolean):
     .eq("id", serviceId)
     .eq("business_id", businessId);
 
-  if (error) return { error: error.message };
+  if (error) return { error: "Could not update the service status. Please try again." };
 
   revalidatePath("/dashboard/services");
   return {};
@@ -124,7 +124,7 @@ export async function deleteService(serviceId: string): Promise<ActionResult> {
     .eq("id", serviceId)
     .eq("business_id", businessId);
 
-  if (error) return { error: error.message };
+  if (error) return { error: "Could not delete the service. Please try again." };
 
   revalidatePath("/dashboard/services");
   return {};
