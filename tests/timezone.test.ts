@@ -91,7 +91,7 @@ test("booking validation helper rejects an instant that is not a generated slot"
 test("DST spring-forward retains intended opening hour and does not create duplicate instants", () => {
   const instant = zonedTimeToUtc("2030-03-31", "09:00", "Europe/Berlin");
   assert.equal(instant.toISOString(), "2030-03-31T07:00:00.000Z");
-  assert.equal(formatInTimeZone(instant, "Europe/Berlin", { hour: "2-digit", minute: "2-digit" }), "09:00");
+  assert.equal(formatInTimeZone(instant, "Europe/Berlin", { hour: "2-digit", minute: "2-digit" }), "09:00 AM");
 
   const springHours = {
     ...OPENING_HOURS,
@@ -104,7 +104,7 @@ test("DST spring-forward retains intended opening hour and does not create dupli
 test("DST fall-back retains intended opening hour and keeps slot instants unique", () => {
   const instant = zonedTimeToUtc("2030-10-27", "09:00", "Europe/Berlin");
   assert.equal(instant.toISOString(), "2030-10-27T08:00:00.000Z");
-  assert.equal(formatInTimeZone(instant, "Europe/Berlin", { hour: "2-digit", minute: "2-digit" }), "09:00");
+  assert.equal(formatInTimeZone(instant, "Europe/Berlin", { hour: "2-digit", minute: "2-digit" }), "09:00 AM");
 
   const fallHours = {
     ...OPENING_HOURS,
