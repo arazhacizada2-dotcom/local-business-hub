@@ -61,7 +61,6 @@ export async function completeOnboarding(formData: FormData): Promise<ActionResu
   let slug = baseSlug;
   let attempt = 0;
 
-  // Ensure slug uniqueness by appending a short suffix if needed.
   while (attempt < 5) {
     const { data: existing } = await supabase
       .from("businesses")
@@ -87,7 +86,7 @@ export async function completeOnboarding(formData: FormData): Promise<ActionResu
     onboarding_complete: true,
   });
 
-  if (error) return { error: error.message };
+  if (error) return { error: "Could not create your business. Please try again." };
 
   redirect("/dashboard");
 }
@@ -130,7 +129,7 @@ export async function updateBusinessProfile(formData: FormData): Promise<ActionR
     .eq("id", businessId)
     .eq("owner_id", user.id);
 
-  if (error) return { error: error.message };
+  if (error) return { error: "Could not update your business profile. Please try again." };
 
   revalidatePath("/dashboard/settings");
   revalidatePath(`/b/${String(formData.get("slug") || "")}`);
@@ -153,7 +152,7 @@ export async function updateOpeningHours(
     .eq("id", businessId)
     .eq("owner_id", user.id);
 
-  if (error) return { error: error.message };
+  if (error) return { error: "Could not update opening hours. Please try again." };
 
   revalidatePath("/dashboard/settings");
   return {};
