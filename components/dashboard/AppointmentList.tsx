@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/Badge";
 import { formatPrice, type Appointment, type AppointmentStatus } from "@/types/database";
 import { updateAppointmentStatus } from "@/lib/actions/appointments";
+import { formatInTimeZone } from "@/lib/timezone";
 
 type ApptWithService = Appointment & { services: { name: string; price_cents: number } | null };
 
@@ -15,7 +16,13 @@ const FILTERS: { key: "upcoming" | "pending" | "all"; label: string }[] = [
   { key: "all", label: "All" },
 ];
 
-export function AppointmentList({ initialAppointments }: { initialAppointments: ApptWithService[] }) {
+export function AppointmentList({
+  initialAppointments,
+  timeZone,
+}: {
+  initialAppointments: ApptWithService[];
+  timeZone: string;
+}) {
   const [appointments, setAppointments] = useState(initialAppointments);
   const [filter, setFilter] = useState<"upcoming" | "pending" | "all">("upcoming");
   const [pendingId, startTransition] = useTransition();
@@ -42,6 +49,8 @@ export function AppointmentList({ initialAppointments }: { initialAppointments: 
     <div>
       <h1 className="font-display text-2xl text-ink">Appointments</h1>
 
+      <p className="mt-1 text-xs text-ink2">Times shown in the business timezone: {timeZone}</p>
+
       <div className="mt-5 flex gap-2">
         {FILTERS.map((f) => (
           <button
@@ -67,13 +76,22 @@ export function AppointmentList({ initialAppointments }: { initialAppointments: 
         <Card className="mt-6 overflow-hidden">
           <ul className="divide-y divide-line">
             {filtered.map((a) => {
-              const start = new Date(a.starts_at);
               return (
                 <li key={a.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
                   <div className="flex min-w-0 items-center gap-4">
                     <div className="w-24 shrink-0 font-mono text-sm text-ink2">
-                      <div>{start.toLocaleDateString([], { month: "short", day: "numeric" })}</div>
-                      <div>{start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                      <div>
+                        {formatInTimeZone(a.starts_at, timeZone, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </div>
+                      <div>
+                        {formatInTimeZone(a.starts_at, timeZone, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </div>
                     </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-ink">{a.customer_name}</p>

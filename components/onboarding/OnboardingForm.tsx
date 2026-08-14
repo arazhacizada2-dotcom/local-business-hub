@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Label, Input, Textarea } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import type { ActionResult } from "@/lib/actions/business";
@@ -10,9 +10,36 @@ const BUSINESS_TYPES = [
   "Restaurant", "Cafe", "Plumber", "Painter", "Roofer", "Other",
 ];
 
+const COMMON_TIMEZONES = [
+  "UTC",
+  "Asia/Baku",
+  "Europe/Berlin",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Vienna",
+  "Europe/Moscow",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "Asia/Dubai",
+  "Asia/Tokyo",
+  "Australia/Sydney",
+];
+
 export function OnboardingForm({ action }: { action: (fd: FormData) => Promise<ActionResult> }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [timezone, setTimezone] = useState("UTC");
+
+  useEffect(() => {
+    try {
+      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (detected) setTimezone(detected);
+    } catch {
+      // Keep the safe UTC fallback when the runtime cannot report an IANA timezone.
+    }
+  }, []);
 
   return (
     <form
@@ -44,6 +71,25 @@ export function OnboardingForm({ action }: { action: (fd: FormData) => Promise<A
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
+      </div>
+
+      <div>
+        <Label htmlFor="timezone">Business timezone</Label>
+        <Input
+          id="timezone"
+          name="timezone"
+          list="business-timezones"
+          value={timezone}
+          onChange={(event) => setTimezone(event.target.value)}
+          required
+          placeholder="Europe/Berlin"
+        />
+        <datalist id="business-timezones">
+          {COMMON_TIMEZONES.map((zone) => <option key={zone} value={zone} />)}
+        </datalist>
+        <p className="mt-1 text-xs text-ink2">
+          Use the business's IANA timezone, such as Europe/Berlin or Asia/Baku. Times are stored as real instants and displayed in this timezone.
+        </p>
       </div>
 
       <div className="grid gap-6 sm:grid-cols-2">

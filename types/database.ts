@@ -32,6 +32,7 @@ export interface Business {
   phone: string | null;
   email: string | null;
   logo_url: string | null;
+  timezone: string;
   opening_hours: OpeningHours;
   plan: Plan;
   onboarding_complete: boolean;

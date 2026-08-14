@@ -3,19 +3,8 @@ import { redirect } from "next/navigation";
 import { StatCard } from "@/components/dashboard/StatCard";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/Badge";
+import { formatInTimeZone, startOfDayInTimeZone, startOfNextDayInTimeZone } from "@/lib/timezone";
 import Link from "next/link";
-
-function startOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function endOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
 
 export default async function DashboardOverviewPage() {
   const supabase = createClient();
@@ -24,46 +13,31 @@ export default async function DashboardOverviewPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Explicitly get the user ID so TypeScript knows it exists.
   const userId = user?.id;
 
-  if (!userId) {
-    redirect("/login");
-  }
+  if (!userId) redirect("/login");
 
   const { data: business, error: businessError } = await supabase
     .from("businesses")
-    .select("id, name")
+    .select("id, name, timezone")
     .eq("owner_id", userId)
     .maybeSingle();
 
-  if (businessError) {
-    throw new Error(businessError.message);
-  }
-
-  if (!business) {
-    redirect("/onboarding");
-  }
+  if (businessError) throw new Error(businessError.message);
+  if (!business) redirect("/onboarding");
 
   const now = new Date();
+  const todayStart = startOfDayInTimeZone(now, business.timezone).toISOString();
+  const tomorrowStart = startOfNextDayInTimeZone(now, business.timezone).toISOString();
 
-  const todayStart = startOfDay(now).toISOString();
-  const todayEnd = endOfDay(now).toISOString();
-
-  const [
-    todaysAppts,
-    upcoming,
-    todaysViews,
-    newBookings,
-    totalServices,
-  ] = await Promise.all([
+  const [todaysAppts, upcoming, todaysViews, newBookings, totalServices] = await Promise.all([
     supabase
       .from("appointments")
       .select("id", { count: "exact", head: true })
       .eq("business_id", business.id)
       .neq("status", "cancelled")
       .gte("starts_at", todayStart)
-      .lte("starts_at", todayEnd),
+      .lt("starts_at", tomorrowStart),
 
     supabase
       .from("appointments")
@@ -80,7 +54,7 @@ export default async function DashboardOverviewPage() {
       .eq("business_id", business.id)
       .eq("event_type", "page_view")
       .gte("created_at", todayStart)
-      .lte("created_at", todayEnd),
+      .lt("created_at", tomorrowStart),
 
     supabase
       .from("appointments")
@@ -94,7 +68,6 @@ export default async function DashboardOverviewPage() {
       .eq("business_id", business.id),
   ]);
 
-  // Check all database requests for errors.
   if (
     todaysAppts.error ||
     upcoming.error ||
@@ -112,14 +85,8 @@ export default async function DashboardOverviewPage() {
     );
   }
 
-  const hour = now.getHours();
-
-  const greeting =
-    hour < 12
-      ? "Good morning"
-      : hour < 18
-        ? "Good afternoon"
-        : "Good evening";
+  const hour = Number(formatInTimeZone(now, business.timezone, { hour: "2-digit", hourCycle: "h23" }));
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   return (
     <div>
@@ -128,43 +95,19 @@ export default async function DashboardOverviewPage() {
         {business.name ? `, ${business.name}` : ""}
       </h1>
 
-      <p className="mt-1 text-sm text-ink2">
-        Here's what's happening today.
-      </p>
+      <p className="mt-1 text-sm text-ink2">Here's what's happening today.</p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Today's bookings"
-          value={todaysAppts.count ?? 0}
-        />
-
-        <StatCard
-          label="Website visitors today"
-          value={todaysViews.count ?? 0}
-        />
-
-        <StatCard
-          label="New enquiries"
-          value={newBookings.count ?? 0}
-          hint="Pending confirmation"
-        />
-
-        <StatCard
-          label="Active services"
-          value={totalServices.count ?? 0}
-        />
+        <StatCard label="Today's bookings" value={todaysAppts.count ?? 0} />
+        <StatCard label="Website visitors today" value={todaysViews.count ?? 0} />
+        <StatCard label="New enquiries" value={newBookings.count ?? 0} hint="Pending confirmation" />
+        <StatCard label="Active services" value={totalServices.count ?? 0} />
       </div>
 
       <div className="mt-10">
         <div className="flex items-center justify-between">
-          <h2 className="font-display text-lg text-ink">
-            Upcoming appointments
-          </h2>
-
-          <Link
-            href="/dashboard/appointments"
-            className="text-sm font-medium text-ledger hover:text-ledgerDark"
-          >
+          <h2 className="font-display text-lg text-ink">Upcoming appointments</h2>
+          <Link href="/dashboard/appointments" className="text-sm font-medium text-ledger hover:text-ledgerDark">
             View all →
           </Link>
         </div>
@@ -172,43 +115,24 @@ export default async function DashboardOverviewPage() {
         <Card className="mt-4 overflow-hidden">
           {!upcoming.data || upcoming.data.length === 0 ? (
             <div className="p-10 text-center">
-              <p className="text-sm text-ink2">
-                No upcoming appointments yet.
-              </p>
-
-              <Link
-                href="/dashboard/services"
-                className="mt-2 inline-block text-sm font-medium text-ledger"
-              >
+              <p className="text-sm text-ink2">No upcoming appointments yet.</p>
+              <Link href="/dashboard/services" className="mt-2 inline-block text-sm font-medium text-ledger">
                 Add a service to start taking bookings →
               </Link>
             </div>
           ) : (
             <ul className="divide-y divide-line">
               {upcoming.data.map((appt: any) => (
-                <li
-                  key={appt.id}
-                  className="flex items-center justify-between gap-4 px-5 py-4"
-                >
+                <li key={appt.id} className="flex items-center justify-between gap-4 px-5 py-4">
                   <div className="flex items-center gap-4">
                     <span className="w-16 shrink-0 font-mono text-sm text-ink2">
-                      {new Date(appt.starts_at).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatInTimeZone(appt.starts_at, business.timezone, { hour: "2-digit", minute: "2-digit" })}
                     </span>
-
                     <div>
-                      <p className="text-sm font-medium text-ink">
-                        {appt.customer_name}
-                      </p>
-
-                      <p className="text-xs text-ink2">
-                        {appt.services?.name ?? "Service removed"}
-                      </p>
+                      <p className="text-sm font-medium text-ink">{appt.customer_name}</p>
+                      <p className="text-xs text-ink2">{appt.services?.name ?? "Service removed"}</p>
                     </div>
                   </div>
-
                   <StatusBadge status={appt.status} />
                 </li>
               ))}
