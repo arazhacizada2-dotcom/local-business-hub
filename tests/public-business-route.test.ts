@@ -15,7 +15,7 @@ const PUBLIC_FIELDS = [
   "opening_hours",
 ] as const;
 
-test("public business lookup contract excludes private business fields", () => {
+test("public business lookup exposes only the intended public fields", () => {
   assert.deepEqual(PUBLIC_FIELDS, [
     "id",
     "slug",
@@ -29,8 +29,8 @@ test("public business lookup contract excludes private business fields", () => {
     "timezone",
     "opening_hours",
   ]);
-  assert.equal(PUBLIC_FIELDS.includes("owner_id" as never), false);
-  assert.equal(PUBLIC_FIELDS.includes("plan" as never), false);
-  assert.equal(PUBLIC_FIELDS.includes("onboarding_complete" as never), false);
-});
 
+  assert.equal((PUBLIC_FIELDS as readonly string[]).includes("owner_id"), false);
+  assert.equal((PUBLIC_FIELDS as readonly string[]).includes("plan"), false);
+  assert.equal((PUBLIC_FIELDS as readonly string[]).includes("onboarding_complete"), false);
+});
