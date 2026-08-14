@@ -8,6 +8,7 @@ const migration = readFileSync(
   join(root, "supabase/migrations/20260814190000_security_public_data_rls.sql"),
   "utf8"
 );
+const schema = readFileSync(join(root, "supabase/schema.sql"), "utf8");
 const publicBusinessRoute = readFileSync(join(root, "app/b/[slug]/page.tsx"), "utf8");
 const appointmentsAction = readFileSync(join(root, "lib/actions/appointments.ts"), "utf8");
 const servicesAction = readFileSync(join(root, "lib/actions/services.ts"), "utf8");
@@ -21,6 +22,13 @@ test("protected application tables keep RLS enabled", () => {
       new RegExp(`alter table public\\.${table} enable row level security`, "i")
     );
   }
+});
+
+test("authenticated owners retain service ownership enforcement", () => {
+  assert.match(
+    schema,
+    /create policy "services_owner_all" on public\.services for all using \([\s\S]*b\.owner_id = auth\.uid\(\)/
+  );
 });
 
 test("anonymous service SELECT is removed and public services use an allowlist RPC", () => {
