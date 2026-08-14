@@ -106,6 +106,7 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
 
   if (
     serviceError ||
+    !service ||
     !isBookableServiceForBusiness(service, businessId) ||
     publicBusinessError ||
     !publicBusiness?.email ||
