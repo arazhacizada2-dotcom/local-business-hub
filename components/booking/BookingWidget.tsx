@@ -10,18 +10,9 @@ import {
   type Service,
   type OpeningHours,
 } from "@/types/database";
-import {
-  getBookedRanges,
-  createBooking,
-} from "@/lib/actions/appointments";
+import { getBookedRanges, createBooking } from "@/lib/actions/appointments";
 import { generateAvailableSlots } from "@/lib/slots";
 
-/**
- * Returns today's calendar date in the BUSINESS timezone.
- *
- * This is important because the customer's computer may be in
- * a completely different timezone from the business.
- */
 function getTodayInTimeZone(timeZone: string): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone,
@@ -33,34 +24,14 @@ function getTodayInTimeZone(timeZone: string): string {
   return formatter.format(new Date());
 }
 
-/**
- * Adds calendar days to a YYYY-MM-DD date.
- *
- * We intentionally use UTC noon here because we're manipulating
- * a calendar date, not an actual moment in time.
- */
 function addCalendarDays(dateISO: string, days: number): string {
   const [year, month, day] = dateISO.split("-").map(Number);
-
-  const date = new Date(
-    Date.UTC(year, month - 1, day, 12, 0, 0)
-  );
-
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
   date.setUTCDate(date.getUTCDate() + days);
-
   return date.toISOString().slice(0, 10);
 }
 
-/**
- * Formats a real Date in the BUSINESS timezone.
- *
- * Never use plain toLocaleTimeString() here because that would
- * use the customer's/browser timezone.
- */
-function formatBusinessTime(
-  date: Date,
-  timeZone: string
-): string {
+function formatBusinessTime(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat(undefined, {
     timeZone,
     hour: "2-digit",
@@ -68,13 +39,7 @@ function formatBusinessTime(
   }).format(date);
 }
 
-/**
- * Formats a real Date in the BUSINESS timezone.
- */
-function formatBusinessDate(
-  date: Date,
-  timeZone: string
-): string {
+function formatBusinessDate(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat(undefined, {
     timeZone,
     weekday: "long",
@@ -85,30 +50,20 @@ function formatBusinessDate(
 
 export function BookingWidget({
   businessId,
+  businessSlug,
   services,
   openingHours,
   timeZone,
 }: {
   businessId: string;
+  businessSlug: string;
   services: Service[];
   openingHours: OpeningHours;
   timeZone: string;
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-
-  const [serviceId, setServiceId] = useState<string>(
-    services[0]?.id ?? ""
-  );
-
-  /**
-   * IMPORTANT:
-   * The selected date is based on the BUSINESS timezone,
-   * not the customer's computer timezone.
-   */
-  const [dateISO, setDateISO] = useState<string>(() =>
-    getTodayInTimeZone(timeZone)
-  );
-
+  const [serviceId, setServiceId] = useState<string>(services[0]?.id ?? "");
+  const [dateISO, setDateISO] = useState<string>(() => getTodayInTimeZone(timeZone));
   const [slots, setSlots] = useState<Date[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<Date | null>(null);
@@ -121,31 +76,13 @@ export function BookingWidget({
     [services, serviceId]
   );
 
-  /**
-   * Date picker boundaries are also based on the BUSINESS timezone.
-   */
-  const minDate = useMemo(
-    () => getTodayInTimeZone(timeZone),
-    [timeZone]
-  );
+  const minDate = useMemo(() => getTodayInTimeZone(timeZone), [timeZone]);
+  const maxDate = useMemo(() => addCalendarDays(minDate, 60), [minDate]);
 
-  const maxDate = useMemo(
-    () => addCalendarDays(minDate, 60),
-    [minDate]
-  );
-
-  /**
-   * Load available appointment slots whenever:
-   * - business changes
-   * - date changes
-   * - service changes
-   * - business timezone changes
-   */
   useEffect(() => {
     if (!service) return;
 
     let cancelled = false;
-
     setLoadingSlots(true);
     setSelectedSlot(null);
     setError(null);
@@ -168,24 +105,14 @@ export function BookingWidget({
     return () => {
       cancelled = true;
     };
-  }, [
-    businessId,
-    dateISO,
-    service,
-    openingHours,
-    timeZone,
-  ]);
+  }, [businessId, dateISO, service, openingHours, timeZone]);
 
   if (success) {
     return (
       <Card className="p-8 text-center">
-        <p className="font-display text-xl text-ink">
-          Booking requested
-        </p>
-
+        <p className="font-display text-xl text-ink">Booking requested</p>
         <p className="mt-2 text-sm text-ink2">
-          We've sent your request to the business. You'll hear back to
-          confirm your appointment.
+          We've sent your request to the business. You'll hear back to confirm your appointment.
         </p>
       </Card>
     );
@@ -202,29 +129,16 @@ export function BookingWidget({
   return (
     <Card className="p-6">
       <div className="mb-6 flex items-center gap-2 text-xs font-mono text-ink2">
-        <span className={step >= 1 ? "text-ledger" : ""}>
-          1. Service
-        </span>
-
+        <span className={step >= 1 ? "text-ledger" : ""}>1. Service</span>
         <span>—</span>
-
-        <span className={step >= 2 ? "text-ledger" : ""}>
-          2. Time
-        </span>
-
+        <span className={step >= 2 ? "text-ledger" : ""}>2. Time</span>
         <span>—</span>
-
-        <span className={step >= 3 ? "text-ledger" : ""}>
-          3. Your details
-        </span>
+        <span className={step >= 3 ? "text-ledger" : ""}>3. Your details</span>
       </div>
 
       {step === 1 && (
         <div className="space-y-4">
-          <Label htmlFor="service">
-            Choose a service
-          </Label>
-
+          <Label htmlFor="service">Choose a service</Label>
           <div className="space-y-2">
             {services.map((s) => (
               <label
@@ -243,30 +157,16 @@ export function BookingWidget({
                     checked={serviceId === s.id}
                     onChange={() => setServiceId(s.id)}
                   />
-
                   <span>
-                    <span className="block font-medium text-ink">
-                      {s.name}
-                    </span>
-
-                    <span className="text-xs text-ink2">
-                      {formatDuration(s.duration_minutes)}
-                    </span>
+                    <span className="block font-medium text-ink">{s.name}</span>
+                    <span className="text-xs text-ink2">{formatDuration(s.duration_minutes)}</span>
                   </span>
                 </span>
-
-                <span className="font-mono text-ink">
-                  {formatPrice(s.price_cents)}
-                </span>
+                <span className="font-mono text-ink">{formatPrice(s.price_cents)}</span>
               </label>
             ))}
           </div>
-
-          <Button
-            className="w-full"
-            onClick={() => setStep(2)}
-            disabled={!serviceId}
-          >
+          <Button className="w-full" onClick={() => setStep(2)} disabled={!serviceId}>
             Continue
           </Button>
         </div>
@@ -275,10 +175,7 @@ export function BookingWidget({
       {step === 2 && service && (
         <div className="space-y-4">
           <div>
-            <Label htmlFor="date">
-              Choose a date
-            </Label>
-
+            <Label htmlFor="date">Choose a date</Label>
             <Input
               id="date"
               type="date"
@@ -290,22 +187,14 @@ export function BookingWidget({
           </div>
 
           <div>
-            <Label>
-              Available times
-            </Label>
-
+            <Label>Available times</Label>
             <p className="mt-1 text-xs text-ink2">
               Times shown in the business timezone: {timeZone}
             </p>
-
             {loadingSlots ? (
-              <p className="mt-3 text-sm text-ink2">
-                Loading available times…
-              </p>
+              <p className="mt-3 text-sm text-ink2">Loading available times…</p>
             ) : slots.length === 0 ? (
-              <p className="mt-3 text-sm text-ink2">
-                No times available this day. Try another date.
-              </p>
+              <p className="mt-3 text-sm text-ink2">No times available this day. Try another date.</p>
             ) : (
               <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
                 {slots.map((slot) => (
@@ -328,13 +217,9 @@ export function BookingWidget({
           </div>
 
           <div className="flex gap-3">
-            <Button
-              variant="ghost"
-              onClick={() => setStep(1)}
-            >
+            <Button variant="ghost" onClick={() => setStep(1)}>
               Back
             </Button>
-
             <Button
               className="flex-1"
               disabled={!selectedSlot}
@@ -351,20 +236,10 @@ export function BookingWidget({
           action={(fd) =>
             startTransition(async () => {
               setError(null);
-
               fd.set("businessId", businessId);
+              fd.set("businessSlug", businessSlug);
               fd.set("serviceId", service.id);
-
-              /**
-               * Keep the actual instant as ISO/UTC.
-               *
-               * The server/database should store the real moment in time.
-               * Only the DISPLAY is converted to the business timezone.
-               */
-              fd.set(
-                "startsAt",
-                selectedSlot.toISOString()
-              );
+              fd.set("startsAt", selectedSlot.toISOString());
 
               const res = await createBooking(fd);
 
@@ -379,73 +254,34 @@ export function BookingWidget({
           noValidate
         >
           <div className="rounded-md bg-ink/5 px-4 py-3 text-sm text-ink2">
-            <p className="font-medium text-ink">
-              {service.name}
-            </p>
-
+            <p className="font-medium text-ink">{service.name}</p>
             <p>
-              {formatBusinessDate(selectedSlot, timeZone)}{" "}
-              at{" "}
-              {formatBusinessTime(selectedSlot, timeZone)}
+              {formatBusinessDate(selectedSlot, timeZone)} at {formatBusinessTime(selectedSlot, timeZone)}
             </p>
-
-            <p className="mt-1 text-xs text-ink2">
-              Business timezone: {timeZone}
-            </p>
+            <p className="mt-1 text-xs text-ink2">Business timezone: {timeZone}</p>
           </div>
 
           <div>
-            <Label htmlFor="customerName">
-              Full name
-            </Label>
-
-            <Input
-              id="customerName"
-              name="customerName"
-              required
-            />
+            <Label htmlFor="customerName">Full name</Label>
+            <Input id="customerName" name="customerName" required />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <Label htmlFor="customerEmail">
-                Email
-              </Label>
-
-              <Input
-                id="customerEmail"
-                name="customerEmail"
-                type="email"
-                required
-              />
+              <Label htmlFor="customerEmail">Email</Label>
+              <Input id="customerEmail" name="customerEmail" type="email" required />
             </div>
-
             <div>
-              <Label htmlFor="customerPhone">
-                Phone (optional)
-              </Label>
-
-              <Input
-                id="customerPhone"
-                name="customerPhone"
-                type="tel"
-              />
+              <Label htmlFor="customerPhone">Phone (optional)</Label>
+              <Input id="customerPhone" name="customerPhone" type="tel" />
             </div>
           </div>
 
           <div>
-            <Label htmlFor="notes">
-              Notes (optional)
-            </Label>
-
-            <Textarea
-              id="notes"
-              name="notes"
-              rows={2}
-            />
+            <Label htmlFor="notes">Notes (optional)</Label>
+            <Textarea id="notes" name="notes" rows={2} />
           </div>
 
-          {/* Honeypot — hidden from users, bots often fill it */}
           <input
             type="text"
             name="_hp_website"
@@ -455,32 +291,14 @@ export function BookingWidget({
             className="absolute left-[-9999px] h-0 w-0 opacity-0"
           />
 
-          {error && (
-            <p
-              role="alert"
-              className="text-sm text-danger"
-            >
-              {error}
-            </p>
-          )}
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
 
           <div className="flex gap-3">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setStep(2)}
-            >
+            <Button type="button" variant="ghost" onClick={() => setStep(2)}>
               Back
             </Button>
-
-            <Button
-              type="submit"
-              className="flex-1"
-              disabled={pending}
-            >
-              {pending
-                ? "Booking…"
-                : "Confirm booking"}
+            <Button type="submit" className="flex-1" disabled={pending}>
+              {pending ? "Booking…" : "Confirm booking"}
             </Button>
           </div>
         </form>
