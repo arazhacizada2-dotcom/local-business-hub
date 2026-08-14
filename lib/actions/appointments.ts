@@ -97,13 +97,19 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
     .eq("is_active", true)
     .maybeSingle();
 
-  const { data: publicBusiness } = await supabase
-    .from("businesses_public")
-    .select("email, opening_hours, timezone")
-    .eq("id", businessId)
-    .maybeSingle();
+  const { data: publicBusinessRows, error: publicBusinessError } = await supabase.rpc(
+    "get_public_business_by_id",
+    { p_business_id: businessId }
+  );
+  const publicBusiness = publicBusinessRows?.[0] ?? null;
 
-  if (serviceError || !service || !publicBusiness?.email || !publicBusiness.timezone) {
+  if (
+    serviceError ||
+    !service ||
+    publicBusinessError ||
+    !publicBusiness?.email ||
+    !publicBusiness.timezone
+  ) {
     return { error: "That service is no longer available. Please refresh and try again." };
   }
 
