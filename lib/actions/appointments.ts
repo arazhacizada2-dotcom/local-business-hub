@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { sendBookingNotification } from "@/lib/email";
 import { formatDateISOInTimeZone, isValidIanaTimeZone } from "@/lib/timezone";
 import { generateAvailableSlots, isRequestedSlotAvailable } from "@/lib/slots";
+import { isBookableServiceForBusiness } from "@/lib/booking";
 import type { OpeningHours } from "@/types/database";
 
 export interface ActionResult {
@@ -97,13 +98,20 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
     .eq("is_active", true)
     .maybeSingle();
 
-  const { data: publicBusiness } = await supabase
-    .from("businesses_public")
-    .select("email, opening_hours, timezone")
-    .eq("id", businessId)
-    .maybeSingle();
+  const { data: publicBusinessRows, error: publicBusinessError } = await supabase.rpc(
+    "get_public_business_by_id",
+    { p_business_id: businessId }
+  );
+  const publicBusiness = publicBusinessRows?.[0] ?? null;
 
-  if (serviceError || !service || !publicBusiness?.email || !publicBusiness.timezone) {
+  if (
+    serviceError ||
+    !service ||
+    !isBookableServiceForBusiness(service, businessId) ||
+    publicBusinessError ||
+    !publicBusiness?.email ||
+    !publicBusiness.timezone
+  ) {
     return { error: "That service is no longer available. Please refresh and try again." };
   }
 
