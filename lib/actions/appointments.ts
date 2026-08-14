@@ -29,10 +29,6 @@ export async function trackPageView(businessId: string): Promise<void> {
   await supabase.from("page_views").insert({ business_id: businessId, event_type: "page_view" });
 }
 
-/**
- * Returns already-booked [start, end] ranges (as ISO strings) for a business
- * on a given business-local calendar date.
- */
 export async function getBookedRanges(businessId: string, dateISO: string) {
   const rate = checkRateLimit("booked_ranges", RATE_LIMITS.bookedRanges);
   if (!rate.allowed) return [];
@@ -57,7 +53,6 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
     };
   }
 
-  // Honeypot: bots often fill hidden fields.
   const honeypot = String(formData.get("_hp_website") || "").trim();
   if (honeypot) {
     return { success: true };
@@ -101,13 +96,14 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
   );
   const publicBusiness = publicBusinessRows?.[0] ?? null;
 
-  const { data: service, error: serviceError } = await supabase
-    .from("services")
-    .select("id, business_id, name, duration_minutes, is_active")
-    .eq("id", serviceId)
-    .eq("business_id", businessId)
-    .eq("is_active", true)
-    .maybeSingle();
+  const { data: serviceRows, error: serviceError } = await supabase.rpc(
+    "get_public_service_by_id",
+    {
+      p_service_id: serviceId,
+      p_business_id: businessId,
+    }
+  );
+  const service = serviceRows?.[0] ?? null;
 
   if (
     publicBusinessError ||
@@ -185,7 +181,6 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
 
   await supabase.from("page_views").insert({ business_id: businessId, event_type: "booking_completed" });
 
-  // Send email notification - fire and forget, don't block return
   sendBookingNotification({
     ownerEmail: publicBusiness.email,
     customerName,
@@ -218,7 +213,7 @@ export async function updateAppointmentStatus(
     .update({ status })
     .eq("id", appointmentId);
 
-  if (error) return { error: error.message };
+  if (error) return { error: "Could not update the appointment. Please try again." };
 
   revalidatePath("/dashboard/appointments");
   revalidatePath("/dashboard");
