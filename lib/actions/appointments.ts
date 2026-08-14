@@ -87,31 +87,35 @@ export async function createBooking(formData: FormData): Promise<ActionResult> {
     customerPhone,
     notes,
   } = parsed.data;
+  const businessSlug = String(formData.get("businessSlug") || "").trim();
+
+  if (!businessSlug) {
+    return { error: "That business is no longer available. Please refresh and try again." };
+  }
 
   const supabase = createClient();
 
-  // Resolve the selected service through a SECURITY DEFINER RPC so booking
-  // confirmation does not depend on anon SELECT/RLS behavior for services.
-  const { data: serviceRows, error: serviceError } = await supabase.rpc(
-    "get_public_service_by_id",
-    {
-      p_service_id: serviceId,
-      p_business_id: businessId,
-    }
-  );
-  const service = serviceRows?.[0] ?? null;
-
   const { data: publicBusinessRows, error: publicBusinessError } = await supabase.rpc(
-    "get_public_business_by_id",
-    { p_business_id: businessId }
+    "get_public_business_by_slug",
+    { p_slug: businessSlug }
   );
   const publicBusiness = publicBusinessRows?.[0] ?? null;
 
+  const { data: service, error: serviceError } = await supabase
+    .from("services")
+    .select("id, business_id, name, duration_minutes, is_active")
+    .eq("id", serviceId)
+    .eq("business_id", businessId)
+    .eq("is_active", true)
+    .maybeSingle();
+
   if (
+    publicBusinessError ||
+    !publicBusiness ||
+    publicBusiness.id !== businessId ||
     serviceError ||
     !service ||
     !isBookableServiceForBusiness(service, businessId) ||
-    publicBusinessError ||
     !publicBusiness?.email ||
     !publicBusiness.timezone
   ) {
